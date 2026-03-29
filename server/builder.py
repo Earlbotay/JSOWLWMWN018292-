@@ -136,19 +136,37 @@ async def build_native(project_dir, config):
 
     await fix_common_issues(project_dir, logs)
 
+    # Determine gradle command — gradlew preferred, fallback to gradle binary
     gradlew = os.path.join(project_dir, "gradlew")
     if os.path.exists(gradlew):
         await run_cmd(f"chmod +x {gradlew}")
+        gcmd = "./gradlew"
+    elif os.path.exists("/tmp/gradle-inst/gradle-8.5/bin/gradle"):
+        gcmd = "/tmp/gradle-inst/gradle-8.5/bin/gradle"
+        logs.append("Auto-fix: using downloaded gradle binary (gradlew unavailable)")
+    else:
+        # Last resort: download gradle now
+        dl_code, _, _ = await run_cmd(
+            "GVER=8.5 && "
+            "curl -fsSL https://services.gradle.org/distributions/gradle-${GVER}-bin.zip -o /tmp/gradle-dl.zip && "
+            "unzip -qo /tmp/gradle-dl.zip -d /tmp/gradle-inst",
+            timeout=300,
+        )
+        if dl_code == 0 and os.path.exists("/tmp/gradle-inst/gradle-8.5/bin/gradle"):
+            gcmd = "/tmp/gradle-inst/gradle-8.5/bin/gradle"
+            logs.append("Auto-fix: installed gradle 8.5 as fallback")
+        else:
+            return {"success": False, "error": "No gradlew found and could not install gradle.", "logs": logs}
 
-    code, out, err = await run_cmd("./gradlew assembleDebug --stacktrace", cwd=project_dir)
+    code, out, err = await run_cmd(f"{gcmd} assembleDebug --stacktrace", cwd=project_dir)
     logs.append(f"assembleDebug: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
         return {"success": False, "error": f"Debug build failed:\n{err[-3000:]}\n{out[-1000:]}", "logs": logs}
 
-    code2, out2, err2 = await run_cmd("./gradlew assembleRelease --stacktrace", cwd=project_dir)
+    code2, out2, err2 = await run_cmd(f"{gcmd} assembleRelease --stacktrace", cwd=project_dir)
     logs.append(f"assembleRelease: {'OK' if code2 == 0 else 'FAIL'}")
 
-    code3, out3, err3 = await run_cmd("./gradlew bundleRelease --stacktrace", cwd=project_dir)
+    code3, out3, err3 = await run_cmd(f"{gcmd} bundleRelease --stacktrace", cwd=project_dir)
     logs.append(f"bundleRelease: {'OK' if code3 == 0 else 'FAIL'}")
 
     files = []

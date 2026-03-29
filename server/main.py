@@ -283,7 +283,7 @@ async def on_message_track(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if msg.message_id not in media_group_cache[gid]:
             media_group_cache[gid].append(msg.message_id)
         # Keep cache small
-        if len(media_group_cache) > 100:
+        if len(media_group_cache) > 500:
             oldest = list(media_group_cache.keys())[0]
             del media_group_cache[oldest]
 
@@ -560,8 +560,8 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Collect message IDs — album or single
     msg_ids = [reply.message_id]
     if reply.media_group_id:
-        # Wait briefly so all album parts are tracked by the cache
-        await asyncio.sleep(1)
+        # Wait so all album parts are tracked by the cache
+        await asyncio.sleep(2)
         if reply.media_group_id in media_group_cache:
             msg_ids = sorted(media_group_cache[reply.media_group_id])
 
@@ -571,12 +571,25 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             continue  # Skip owner
         try:
             if len(msg_ids) > 1:
-                # Batch forward — preserves album grouping
-                await ctx.bot.forward_messages(
-                    chat_id=int(uid),
-                    from_chat_id=update.effective_chat.id,
-                    message_ids=msg_ids,
-                )
+                # Try batch forward first (preserves album grouping, requires Bot API 7.2+)
+                try:
+                    await ctx.bot.forward_messages(
+                        chat_id=int(uid),
+                        from_chat_id=update.effective_chat.id,
+                        message_ids=msg_ids,
+                    )
+                except Exception:
+                    # Fallback: forward each message individually
+                    for mid in msg_ids:
+                        try:
+                            await ctx.bot.forward_message(
+                                chat_id=int(uid),
+                                from_chat_id=update.effective_chat.id,
+                                message_id=mid,
+                            )
+                            await asyncio.sleep(0.05)
+                        except Exception:
+                            pass
             else:
                 await ctx.bot.forward_message(
                     chat_id=int(uid),
