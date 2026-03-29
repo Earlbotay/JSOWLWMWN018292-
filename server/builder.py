@@ -98,25 +98,91 @@ async def fix_common_issues(project_dir, logs, gradle_subdir=""):
     if crlf_fixed > 0:
         logs.append(f"Auto-fix: line endings fixed ({crlf_fixed} files)")
 
-    # 2. Generate gradle wrapper if gradlew missing
+    # 2. Detect correct Gradle version from project
+    gradle_ver = None
+    gradle_dist_url = None
+    props_path = os.path.join(gdir, "gradle", "wrapper", "gradle-wrapper.properties")
+    if os.path.exists(props_path):
+        try:
+            with open(props_path, "r") as f:
+                for line in f:
+                    if "distributionUrl" in line:
+                        url = line.split("=", 1)[1].strip().replace("\\:", ":")
+                        gradle_dist_url = url
+                        # Extract version from URL like gradle-6.1.1-bin.zip
+                        m = re.search(r"gradle-([0-9.]+)-", url)
+                        if m:
+                            gradle_ver = m.group(1)
+                        break
+        except Exception:
+            pass
+    if not gradle_ver:
+        # Detect from AGP version in build.gradle
+        for bg_name in ("build.gradle", "build.gradle.kts"):
+            bg_path = os.path.join(gdir, bg_name)
+            if os.path.exists(bg_path):
+                try:
+                    with open(bg_path, "r") as f:
+                        content = f.read()
+                    m = re.search(r"com\.android\.tools\.build:gradle:([0-9.]+)", content)
+                    if m:
+                        agp = m.group(1)
+                        major = int(agp.split(".")[0])
+                        minor = int(agp.split(".")[1]) if len(agp.split(".")) > 1 else 0
+                        # AGP → compatible Gradle version mapping
+                        if major <= 3:
+                            gradle_ver = "6.1.1"
+                        elif major == 4 and minor <= 0:
+                            gradle_ver = "6.1.1"
+                        elif major == 4 and minor <= 1:
+                            gradle_ver = "6.7.1"
+                        elif major == 4:
+                            gradle_ver = "6.9.4"
+                        elif major == 7 and minor <= 0:
+                            gradle_ver = "7.0.2"
+                        elif major == 7 and minor <= 2:
+                            gradle_ver = "7.3.3"
+                        elif major == 7 and minor <= 4:
+                            gradle_ver = "7.5.1"
+                        elif major == 8 and minor <= 1:
+                            gradle_ver = "8.0"
+                        elif major == 8 and minor <= 3:
+                            gradle_ver = "8.4"
+                        elif major == 8 and minor <= 5:
+                            gradle_ver = "8.7"
+                        else:
+                            gradle_ver = "8.5"
+                        logs.append(f"Auto-fix: detected AGP {agp} → Gradle {gradle_ver}")
+                        break
+                except Exception:
+                    pass
+    if not gradle_ver:
+        gradle_ver = "8.5"  # Fallback default
+    if not gradle_dist_url:
+        gradle_dist_url = f"https://services.gradle.org/distributions/gradle-{gradle_ver}-bin.zip"
+
+    # 3. Generate gradle wrapper if gradlew missing
     if not os.path.exists(gradlew):
-        logs.append("Auto-fix: gradlew missing, generating wrapper...")
-        # Try system gradle first
-        code, _, _ = await run_cmd("gradle wrapper 2>/dev/null", cwd=gdir, timeout=180)
-        if code != 0 or not os.path.exists(gradlew):
-            # Download gradle and generate wrapper
-            code, _, _ = await run_cmd(
-                "GVER=8.5 && "
-                "curl -sL https://services.gradle.org/distributions/gradle-${GVER}-bin.zip -o /tmp/gradle-dl.zip && "
-                "unzip -qo /tmp/gradle-dl.zip -d /tmp/gradle-inst && "
-                "/tmp/gradle-inst/gradle-${GVER}/bin/gradle wrapper",
-                cwd=gdir, timeout=300,
+        logs.append(f"Auto-fix: gradlew missing, downloading Gradle {gradle_ver}...")
+        dl_dir = f"/tmp/gradle-inst/gradle-{gradle_ver}"
+        if not os.path.exists(os.path.join(dl_dir, "bin", "gradle")):
+            await run_cmd(
+                f"curl -fsSL '{gradle_dist_url}' -o /tmp/gradle-dl.zip && "
+                f"rm -rf /tmp/gradle-inst && "
+                f"unzip -qo /tmp/gradle-dl.zip -d /tmp/gradle-inst",
+                timeout=300,
             )
-        if os.path.exists(gradlew):
-            await run_cmd(f"chmod +x {gradlew}")
-            logs.append("Auto-fix: gradle wrapper generated")
+        gradle_bin = os.path.join(dl_dir, "bin", "gradle")
+        if os.path.exists(gradle_bin):
+            # Try to generate wrapper
+            code, _, _ = await run_cmd(f"{gradle_bin} wrapper", cwd=gdir, timeout=180)
+            if os.path.exists(gradlew):
+                await run_cmd(f"chmod +x {gradlew}")
+                logs.append(f"Auto-fix: gradle wrapper generated (v{gradle_ver})")
+            else:
+                logs.append(f"Auto-fix: wrapper generation failed, will use gradle binary directly")
         else:
-            logs.append("Auto-fix: could not generate gradle wrapper")
+            logs.append("Auto-fix: gradle download failed")
 
     # 3. Create local.properties if missing (sdk.dir)
     lp = os.path.join(gdir, "local.properties")
@@ -136,26 +202,23 @@ async def build_native(project_dir, config):
 
     await fix_common_issues(project_dir, logs)
 
-    # Determine gradle command — gradlew preferred, fallback to gradle binary
+    # Determine gradle command — gradlew preferred, fallback to downloaded gradle binary
     gradlew = os.path.join(project_dir, "gradlew")
     if os.path.exists(gradlew):
         await run_cmd(f"chmod +x {gradlew}")
         gcmd = "./gradlew"
-    elif os.path.exists("/tmp/gradle-inst/gradle-8.5/bin/gradle"):
-        gcmd = "/tmp/gradle-inst/gradle-8.5/bin/gradle"
-        logs.append("Auto-fix: using downloaded gradle binary (gradlew unavailable)")
     else:
-        # Last resort: download gradle now
-        dl_code, _, _ = await run_cmd(
-            "GVER=8.5 && "
-            "curl -fsSL https://services.gradle.org/distributions/gradle-${GVER}-bin.zip -o /tmp/gradle-dl.zip && "
-            "unzip -qo /tmp/gradle-dl.zip -d /tmp/gradle-inst",
-            timeout=300,
-        )
-        if dl_code == 0 and os.path.exists("/tmp/gradle-inst/gradle-8.5/bin/gradle"):
-            gcmd = "/tmp/gradle-inst/gradle-8.5/bin/gradle"
-            logs.append("Auto-fix: installed gradle 8.5 as fallback")
-        else:
+        # Find any downloaded gradle binary in /tmp/gradle-inst/
+        gcmd = None
+        inst_dir = "/tmp/gradle-inst"
+        if os.path.isdir(inst_dir):
+            for entry in os.listdir(inst_dir):
+                candidate = os.path.join(inst_dir, entry, "bin", "gradle")
+                if os.path.exists(candidate):
+                    gcmd = candidate
+                    logs.append(f"Auto-fix: using {entry} binary (gradlew unavailable)")
+                    break
+        if not gcmd:
             return {"success": False, "error": "No gradlew found and could not install gradle.", "logs": logs}
 
     code, out, err = await run_cmd(f"{gcmd} assembleDebug --stacktrace", cwd=project_dir)
