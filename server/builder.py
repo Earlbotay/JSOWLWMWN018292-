@@ -74,12 +74,57 @@ async def setup_flutter(version):
     return True
 
 
+async def fix_common_issues(project_dir, logs, gradle_subdir=""):
+    """Auto-fix common build issues before compilation."""
+    gdir = os.path.join(project_dir, gradle_subdir) if gradle_subdir else project_dir
+    gradlew = os.path.join(gdir, "gradlew")
+
+    # 1. Fix Windows line endings (CRLF → LF) on key build files
+    crlf_fixed = 0
+    for root, dirs, fnames in os.walk(gdir):
+        dirs[:] = [d for d in dirs if d not in (".git", "build", ".gradle", "node_modules")]
+        for fn in fnames:
+            if fn in ("gradlew",) or fn.endswith((".gradle", ".properties", ".xml", ".pro", ".kts")):
+                fpath = os.path.join(root, fn)
+                try:
+                    with open(fpath, "rb") as f:
+                        content = f.read()
+                    if b"\r\n" in content:
+                        with open(fpath, "wb") as f:
+                            f.write(content.replace(b"\r\n", b"\n"))
+                        crlf_fixed += 1
+                except Exception:
+                    pass
+    if crlf_fixed > 0:
+        logs.append(f"Auto-fix: line endings fixed ({crlf_fixed} files)")
+
+    # 2. Generate gradle wrapper if gradlew missing
+    if not os.path.exists(gradlew):
+        logs.append("Auto-fix: gradlew missing, generating wrapper...")
+        code, _, _ = await run_cmd("gradle wrapper", cwd=gdir, timeout=180)
+        if code == 0 and os.path.exists(gradlew):
+            await run_cmd(f"chmod +x {gradlew}")
+            logs.append("Auto-fix: gradle wrapper generated")
+        else:
+            logs.append("Auto-fix: could not generate gradle wrapper")
+
+    # 3. Create local.properties if missing (sdk.dir)
+    lp = os.path.join(gdir, "local.properties")
+    if not os.path.exists(lp):
+        ah = os.environ.get("ANDROID_HOME", "/usr/local/lib/android/sdk")
+        with open(lp, "w") as f:
+            f.write(f"sdk.dir={ah}\n")
+        logs.append("Auto-fix: created local.properties (sdk.dir)")
+
+
 async def build_native(project_dir, config):
     logs = []
     await setup_java(config.get("java_version", "11"))
     logs.append(f"Java {config.get('java_version','11')} ready")
     await setup_android_sdk(config.get("compile_sdk"), config.get("build_tools"))
     logs.append("Android SDK ready")
+
+    await fix_common_issues(project_dir, logs)
 
     gradlew = os.path.join(project_dir, "gradlew")
     if os.path.exists(gradlew):
@@ -117,6 +162,8 @@ async def build_flutter(project_dir, config):
     if not ok:
         return {"success": False, "error": "Flutter SDK install failed", "logs": logs}
     logs.append(f"Flutter {config.get('flutter_version','stable')} ready")
+
+    await fix_common_issues(project_dir, logs, "android")
 
     gw = os.path.join(project_dir, "android", "gradlew")
     if os.path.exists(gw):
