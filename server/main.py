@@ -104,7 +104,7 @@ async def start_text():
         "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u250c\n"
-        "\u25c6 \U0001f464 <b>OWNER</b> : @" + OWNER_USERNAME + "\n"
+        "\u25c6 \U0001f451 <b>OWNER</b> : @" + OWNER_USERNAME + "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 \U0001f5a5 <b>STATUS BOT</b> : ONLINE\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
@@ -187,7 +187,7 @@ async def show_building(q):
     status = "\U0001f528 Compiling..." if building else "\u2705 No active process"
     cur = ""
     if qm.current:
-        cur = "\n\u25c6 \U0001f464 <b>User</b>: @" + str(qm.current.get("username", "?"))
+        cur = "\n\u25c6 <b>User</b>: @" + str(qm.current.get("username", "?"))
 
     hist = ""
     for i, h in enumerate(stats.get("recent_success", [])[:5], 1):
@@ -273,7 +273,7 @@ async def on_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ── Media group tracker (for album /forward) ────────────
+# ── Media group tracker (for album /foward) ─────────────
 async def on_message_track(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if msg and msg.media_group_id:
@@ -356,14 +356,16 @@ async def notify_channel_success(bot, req, fname, ptype):
     if not CHANNEL_ID:
         return
     try:
+        queue_count = qm.get_size()
         txt = (
-            "<blockquote>\u2705 <b>BUILD SUCCESSFUL</b>\n\n"
+            "<blockquote><b>BUILD SUCCESSFUL</b>\n\n"
             "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-            "\u25c6 \U0001f464 <b>User</b>: @" + req["username"] + "\n"
-            "\u25c6 \U0001f4f1 <b>APK</b>: " + fname + "\n"
-            "\u25c6 \U0001f527 <b>Type</b>: " + ptype.upper() + "\n"
+            "\u25c6 <b>User</b>: @" + req["username"] + "\n"
+            "\u25c6 <b>APK</b>: " + fname + "\n"
+            "\u25c6 <b>Type</b>: " + ptype.upper() + "\n"
+            "\u25c6 <b>Queue</b>: " + str(queue_count) + " user(s) waiting\n"
             "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
-            "\U0001f916 @" + bot_username + "</blockquote>"
+            "@" + bot_username + "</blockquote>"
         )
         await bot.send_message(
             chat_id=CHANNEL_ID, text=txt, parse_mode="HTML",
@@ -415,7 +417,7 @@ async def process_build(bot, req, status_msg):
         ptype = info["type"]
         await edit_status(
             bot, status_msg,
-            "\U0001f4f1 Detected: <b>" + ptype.upper() + "</b>\n\U0001f528 Compiling... (~5-20 min)",
+            "Detected: <b>" + ptype.upper() + "</b>\nCompiling & Building ... (~5-20 min)",
         )
 
         if shutdown_event.is_set():
@@ -438,9 +440,9 @@ async def process_build(bot, req, status_msg):
 
             fsize = os.path.getsize(out_zip)
             caption = (
-                "<blockquote>\u2705 <b>Build Successful!</b>\n\n"
-                "\U0001f4f1 <b>Project</b>: " + fname + "\n"
-                "\U0001f527 <b>Type</b>: " + ptype.upper() + "\n\n"
+                "<blockquote><b>Build Successful!</b>\n\n"
+                "<b>Project</b>: " + fname + "\n"
+                "<b>Type</b>: " + ptype.upper() + "\n\n"
                 "\u26a0\ufe0f Release APK/AAB is unsigned.\n\n"
                 "<b>BUILD BY @Earlxz</b></blockquote>"
             )
@@ -457,9 +459,9 @@ async def process_build(bot, req, status_msg):
                     await bot.send_message(
                         chat_id=chat_id,
                         text=(
-                            "<blockquote>\u2705 <b>Build Successful!</b>\n\n"
-                            "\U0001f4f1 " + fname + " (" + ptype.upper() + ")\n\n"
-                            "\U0001f4e5 File too large. Download:\n" + link + "\n\n"
+                            "<blockquote><b>Build Successful!</b>\n\n"
+                            "" + fname + " (" + ptype.upper() + ")\n\n"
+                            "File too large. Download:\n" + link + "\n\n"
                             "<b>BUILD BY @Earlxz</b></blockquote>"
                         ),
                         parse_mode="HTML",
@@ -490,8 +492,8 @@ async def process_build(bot, req, status_msg):
                     chat_id=chat_id, document=f,
                     filename=pname + "_error.zip",
                     caption=(
-                        "<blockquote>\u274c <b>Build Failed.</b>\n\n"
-                        "\U0001f4f1 " + fname + " (" + ptype.upper() + ")\n\n"
+                        "<blockquote><b>Build Failed.</b>\n\n"
+                        "" + fname + " (" + ptype.upper() + ")\n\n"
                         "Check error log in zip.</blockquote>"
                     ),
                     parse_mode="HTML",
@@ -541,7 +543,7 @@ async def process_build(bot, req, status_msg):
                 logger.error(f"Next build failed: {e}")
 
 
-# ── /forward (owner only) — supports media albums ───────
+# ── /foward (owner only) — supports media albums ────────
 async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_TG_ID:
         return
@@ -557,19 +559,29 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Collect message IDs — album or single
     msg_ids = [reply.message_id]
-    if reply.media_group_id and reply.media_group_id in media_group_cache:
-        msg_ids = sorted(media_group_cache[reply.media_group_id])
+    if reply.media_group_id:
+        # Wait briefly so all album parts are tracked by the cache
+        await asyncio.sleep(1)
+        if reply.media_group_id in media_group_cache:
+            msg_ids = sorted(media_group_cache[reply.media_group_id])
 
     ok, fail = 0, 0
     for uid in users:
         if int(uid) == OWNER_TG_ID:
             continue  # Skip owner
         try:
-            for mid in msg_ids:
+            if len(msg_ids) > 1:
+                # Batch forward — preserves album grouping
+                await ctx.bot.forward_messages(
+                    chat_id=int(uid),
+                    from_chat_id=update.effective_chat.id,
+                    message_ids=msg_ids,
+                )
+            else:
                 await ctx.bot.forward_message(
                     chat_id=int(uid),
                     from_chat_id=update.effective_chat.id,
-                    message_id=mid,
+                    message_id=msg_ids[0],
                 )
             ok += 1
         except Exception:
@@ -659,7 +671,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("build", cmd_build))
-    app.add_handler(CommandHandler("forward", cmd_forward))
+    app.add_handler(CommandHandler("foward", cmd_forward))
     app.add_handler(CallbackQueryHandler(cb_handler))
     # Media group tracker — runs first (group -1) to capture album message IDs
     app.add_handler(MessageHandler(filters.ALL, on_message_track), group=-1)

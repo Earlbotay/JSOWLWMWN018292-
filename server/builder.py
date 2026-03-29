@@ -101,8 +101,18 @@ async def fix_common_issues(project_dir, logs, gradle_subdir=""):
     # 2. Generate gradle wrapper if gradlew missing
     if not os.path.exists(gradlew):
         logs.append("Auto-fix: gradlew missing, generating wrapper...")
-        code, _, _ = await run_cmd("gradle wrapper", cwd=gdir, timeout=180)
-        if code == 0 and os.path.exists(gradlew):
+        # Try system gradle first
+        code, _, _ = await run_cmd("gradle wrapper 2>/dev/null", cwd=gdir, timeout=180)
+        if code != 0 or not os.path.exists(gradlew):
+            # Download gradle and generate wrapper
+            code, _, _ = await run_cmd(
+                "GVER=8.5 && "
+                "curl -sL https://services.gradle.org/distributions/gradle-${GVER}-bin.zip -o /tmp/gradle-dl.zip && "
+                "unzip -qo /tmp/gradle-dl.zip -d /tmp/gradle-inst && "
+                "/tmp/gradle-inst/gradle-${GVER}/bin/gradle wrapper",
+                cwd=gdir, timeout=300,
+            )
+        if os.path.exists(gradlew):
             await run_cmd(f"chmod +x {gradlew}")
             logs.append("Auto-fix: gradle wrapper generated")
         else:
