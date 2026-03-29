@@ -1,0 +1,56 @@
+name: Server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            11
+            17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses 2>/dev/null || true
+
+      - name: Install common SDK packages
+        run: |
+          sdkmanager "platforms;android-34" "platforms;android-33" \
+                     "platforms;android-31" "platforms;android-30" \
+                     "build-tools;34.0.0" "build-tools;33.0.2" \
+                     "build-tools;30.0.3" 2>/dev/null || true
+
+      - name: Install Python deps
+        run: pip install -r server/requirements.txt
+
+      - name: Run bot server
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          OWNER_TG_ID: ${{ secrets.OWNER_TG_ID }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          CHANNEL_LINK: ${{ secrets.CHANNEL_LINK }}
+          PRIVATE_REPO: ${{ secrets.PRIVATE_REPO }}
+          VIDEO_URL: ${{ secrets.VIDEO_URL }}
+        run: python server/main.py
