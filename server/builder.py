@@ -193,6 +193,100 @@ async def fix_common_issues(project_dir, logs, gradle_subdir=""):
         logs.append("Auto-fix: created local.properties (sdk.dir)")
 
 
+def _ver_tuple(v):
+    """Convert version string to tuple for comparison."""
+    return tuple(int(x) for x in v.split("."))
+
+
+async def fix_flutter_versions(project_dir, logs):
+    """Auto-fix Gradle/AGP versions in android/ to meet Flutter minimums."""
+    android_dir = os.path.join(project_dir, "android")
+    if not os.path.isdir(android_dir):
+        return
+    min_gradle = "8.7"
+    min_agp = "8.1.1"
+
+    # 1. Fix Gradle version in gradle-wrapper.properties
+    props_path = os.path.join(android_dir, "gradle", "wrapper", "gradle-wrapper.properties")
+    if os.path.exists(props_path):
+        try:
+            with open(props_path, "r") as f:
+                content = f.read()
+            m = re.search(r"gradle-([0-9.]+)-", content)
+            if m:
+                cur = m.group(1)
+                cur_t = _ver_tuple(cur)
+                min_t = _ver_tuple(min_gradle)
+                # Pad for comparison
+                while len(cur_t) < len(min_t):
+                    cur_t = cur_t + (0,)
+                while len(min_t) < len(cur_t):
+                    min_t = min_t + (0,)
+                if cur_t < min_t:
+                    new_url = f"https\\://services.gradle.org/distributions/gradle-{min_gradle}-bin.zip"
+                    new_content = re.sub(r"distributionUrl=.*", f"distributionUrl={new_url}", content)
+                    with open(props_path, "w") as f:
+                        f.write(new_content)
+                    logs.append(f"Auto-fix: Gradle {cur} → {min_gradle}")
+        except Exception:
+            pass
+
+    # 2. Fix AGP version — check settings.gradle (newer) then build.gradle (older)
+    agp_fixed = False
+    for sg_name in ("settings.gradle", "settings.gradle.kts"):
+        sg_path = os.path.join(android_dir, sg_name)
+        if os.path.exists(sg_path) and not agp_fixed:
+            try:
+                with open(sg_path, "r") as f:
+                    content = f.read()
+                # plugins { id "com.android.application" version "8.1.0" }
+                m = re.search(
+                    r'(id\s+["\']com\.android\.application["\']\s+version\s+["\'])([0-9.]+)(["\'])',
+                    content
+                )
+                if m:
+                    cur_agp = m.group(2)
+                    cur_t = _ver_tuple(cur_agp)
+                    min_t = _ver_tuple(min_agp)
+                    while len(cur_t) < len(min_t):
+                        cur_t = cur_t + (0,)
+                    while len(min_t) < len(cur_t):
+                        min_t = min_t + (0,)
+                    if cur_t < min_t:
+                        new_content = content[:m.start(2)] + min_agp + content[m.end(2):]
+                        with open(sg_path, "w") as f:
+                            f.write(new_content)
+                        logs.append(f"Auto-fix: AGP {cur_agp} → {min_agp} ({sg_name})")
+                    agp_fixed = True
+            except Exception:
+                pass
+
+    if not agp_fixed:
+        for bg_name in ("build.gradle", "build.gradle.kts"):
+            bg_path = os.path.join(android_dir, bg_name)
+            if os.path.exists(bg_path):
+                try:
+                    with open(bg_path, "r") as f:
+                        content = f.read()
+                    m = re.search(r"(com\.android\.tools\.build:gradle:)([0-9.]+)", content)
+                    if m:
+                        cur_agp = m.group(2)
+                        cur_t = _ver_tuple(cur_agp)
+                        min_t = _ver_tuple(min_agp)
+                        while len(cur_t) < len(min_t):
+                            cur_t = cur_t + (0,)
+                        while len(min_t) < len(cur_t):
+                            min_t = min_t + (0,)
+                        if cur_t < min_t:
+                            new_content = content[:m.start(2)] + min_agp + content[m.end(2):]
+                            with open(bg_path, "w") as f:
+                                f.write(new_content)
+                            logs.append(f"Auto-fix: AGP {cur_agp} → {min_agp} ({bg_name})")
+                        break
+                except Exception:
+                    pass
+
+
 async def build_native(project_dir, config):
     logs = []
     await setup_java(config.get("java_version", "11"))
@@ -255,6 +349,7 @@ async def build_flutter(project_dir, config):
     logs.append(f"Flutter {config.get('flutter_version','stable')} ready")
 
     await fix_common_issues(project_dir, logs, "android")
+    await fix_flutter_versions(project_dir, logs)
 
     gw = os.path.join(project_dir, "android", "gradlew")
     if os.path.exists(gw):
