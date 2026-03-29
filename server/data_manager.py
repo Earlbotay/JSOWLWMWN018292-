@@ -90,21 +90,19 @@ class DataManager:
         return stats
 
     async def add_build_history(self, info):
+        """Only called for successful builds — failed builds are NOT recorded."""
         stats = await self.get_build_stats()
         key = "total_native" if info["project_type"] == "native" else "total_flutter"
         stats[key] = stats.get(key, 0) + 1
-        if info.get("success"):
-            stats["total_success"] = stats.get("total_success", 0) + 1
-            entry = {
-                "username": info["username"],
-                "project_name": info["project_name"],
-                "project_type": info["project_type"],
-                "time": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            }
-            stats.setdefault("recent_success", []).insert(0, entry)
-            stats["recent_success"] = stats["recent_success"][:5]
-        else:
-            stats["total_failed"] = stats.get("total_failed", 0) + 1
+        stats["total_success"] = stats.get("total_success", 0) + 1
+        entry = {
+            "username": info["username"],
+            "project_name": info["project_name"],
+            "project_type": info["project_type"],
+            "time": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        }
+        stats.setdefault("recent_success", []).insert(0, entry)
+        stats["recent_success"] = stats["recent_success"][:5]
         await self._put_file("data/build_stats.json", stats, "update stats")
         self._stats = stats
 

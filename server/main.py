@@ -34,6 +34,10 @@ dm = DataManager(PAT_TOKEN, PRIVATE_REPO)
 qm = QueueManager()
 video_file_id = None
 building = False
+build_task = None
+shutdown_event = asyncio.Event()
+media_group_cache = {}
+bot_username = ""
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -51,7 +55,7 @@ def main_kb():
             InlineKeyboardButton("\u23f3 QUEUE", callback_data="queue"),
         ],
         [
-            InlineKeyboardButton("\U0001f4d6 PANDUAN", callback_data="panduan"),
+            InlineKeyboardButton("\U0001f4d6 GUIDE", callback_data="guide"),
             InlineKeyboardButton("\U0001f465 TOTAL USER", callback_data="total_user"),
         ],
         [InlineKeyboardButton("\U0001f451 OWNER", url=f"https://t.me/{OWNER_USERNAME}")],
@@ -60,14 +64,14 @@ def main_kb():
 
 def back_kb():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001f519 KEMBALI", callback_data="back")]
+        [InlineKeyboardButton("\U0001f519 BACK", callback_data="back")]
     ])
 
 
 def join_kb():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001f4e2 Join Channel", url=CHANNEL_LINK)],
-        [InlineKeyboardButton("\u2705 Sudah Join", callback_data="check_join")],
+        [InlineKeyboardButton("\u2705 Already Joined", callback_data="check_join")],
     ])
 
 
@@ -100,15 +104,15 @@ async def start_text():
         "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u250c\n"
-        "\u25c6 \U0001f464 OWNER : @" + OWNER_USERNAME + "\n"
+        "\u25c6 \U0001f464 <b>OWNER</b> : @" + OWNER_USERNAME + "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u25c6 \U0001f5a5 STATUS BOT : ONLINE\n"
+        "\u25c6 \U0001f5a5 <b>STATUS BOT</b> : ONLINE\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u25c6 \U0001f4c2 UPLOAD BY : GITHUB\n"
+        "\u25c6 \U0001f4c2 <b>UPLOAD BY</b> : GITHUB\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u25c6 \u23f1 RESTART IN : " + countdown() + "\n"
+        "\u25c6 \u23f1 <b>RESTART IN</b> : " + countdown() + "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u25c6 \u2705 BUILD BERJAYA : " + str(total) + "\n"
+        "\u25c6 \u2705 <b>BUILD APK</b> : " + str(total) + "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u2514\n"
         "" + COUNTRY_FLAG + " CREATOR'S COUNTRY : MALAYSIA " + COUNTRY_FLAG + "\n"
@@ -129,7 +133,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not joined:
         txt = (
             "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
-            "\u274c Sila join channel kami dahulu!</blockquote>"
+            "\u274c Please join our channel first!</blockquote>"
         )
         await update.message.reply_text(txt, parse_mode="HTML", reply_markup=join_kb())
         return
@@ -165,13 +169,13 @@ async def cb_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if await check_join(ctx.bot, q.from_user.id):
             await edit_msg(q, await start_text(), main_kb())
         else:
-            await q.answer("\u274c Belum join lagi!", show_alert=True)
+            await q.answer("\u274c You haven't joined yet!", show_alert=True)
     elif d == "building":
         await show_building(q)
     elif d == "queue":
         await show_queue(q)
-    elif d == "panduan":
-        await show_panduan(q)
+    elif d == "guide":
+        await show_guide(q)
     elif d == "total_user":
         await show_users(q)
     elif d == "back":
@@ -180,10 +184,10 @@ async def cb_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def show_building(q):
     stats = await dm.get_build_stats()
-    status = "\U0001f528 Sedang compile..." if building else "\u2705 Tiada proses"
+    status = "\U0001f528 Compiling..." if building else "\u2705 No active process"
     cur = ""
     if qm.current:
-        cur = "\n\u25c6 \U0001f464 User: @" + str(qm.current.get("username", "?"))
+        cur = "\n\u25c6 \U0001f464 <b>User</b>: @" + str(qm.current.get("username", "?"))
 
     hist = ""
     for i, h in enumerate(stats.get("recent_success", [])[:5], 1):
@@ -194,18 +198,18 @@ async def show_building(q):
             + " \u2014 " + h["time"]
         )
     if not hist:
-        hist = "\nTiada lagi"
+        hist = "\nNo records yet"
 
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f4ca STATUS PEMBINAAN\n"
+        "\U0001f4ca <b>BUILD STATUS</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u25c6 Status: " + status + cur + "\n"
-        "\u25c6 Total Native: " + str(stats.get("total_native", 0)) + "\n"
-        "\u25c6 Total Flutter: " + str(stats.get("total_flutter", 0)) + "\n\n"
+        "\u25c6 <b>Status</b>: " + status + cur + "\n"
+        "\u25c6 <b>Total Native</b>: " + str(stats.get("total_native", 0)) + "\n"
+        "\u25c6 <b>Total Flutter</b>: " + str(stats.get("total_flutter", 0)) + "\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f4cb SEJARAH BUILD BERJAYA\n"
+        "\U0001f4cb <b>SUCCESSFUL BUILD HISTORY</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
         + hist + "</blockquote>"
     )
@@ -214,34 +218,34 @@ async def show_building(q):
 
 async def show_queue(q):
     sz = qm.get_size()
-    cur = ("@" + qm.current["username"]) if qm.current else "Tiada"
+    cur = ("@" + qm.current["username"]) if qm.current else "None"
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u23f3 ANTRIAN BUILD\n"
+        "\u23f3 <b>BUILD QUEUE</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
-        "\u25c6 User dalam barisan: " + str(sz) + "\n"
-        "\u25c6 Sedang compile: " + cur + "</blockquote>"
+        "\u25c6 <b>Users in queue</b>: " + str(sz) + "\n"
+        "\u25c6 <b>Currently compiling</b>: " + cur + "</blockquote>"
     )
     await edit_msg(q, txt, back_kb())
 
 
-async def show_panduan(q):
+async def show_guide(q):
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f4d6 PANDUAN\n"
+        "\U0001f4d6 <b>GUIDE</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
-        "1\ufe0f\u20e3 Hantar file <b>.zip</b> ke bot\n"
-        "2\ufe0f\u20e3 Reply file tu dgn /build\n"
-        "3\ufe0f\u20e3 Bot auto-detect & compile\n"
-        "4\ufe0f\u20e3 Tunggu 5-20 minit\n"
-        "5\ufe0f\u20e3 Bot hantar APK + AAB\n\n"
-        "\u26a0\ufe0f NOTA:\n"
-        "\u2022 Project Android/Flutter sahaja\n"
-        "\u2022 Release unsigned \u2014 sign sendiri\n"
-        "\u2022 Limit 50MB (lebih \u2192 GoFile)\n"
-        "\u2022 Satu build pada satu masa</blockquote>"
+        "1\ufe0f\u20e3 Send <b>.zip</b> file to the bot\n"
+        "2\ufe0f\u20e3 Reply to the file with /build\n"
+        "3\ufe0f\u20e3 Bot auto-detects & compiles\n"
+        "4\ufe0f\u20e3 Wait ~5-20 minutes\n"
+        "5\ufe0f\u20e3 Bot sends APK + AAB\n\n"
+        "\u26a0\ufe0f <b>NOTE:</b>\n"
+        "\u2022 Android Native/Flutter only\n"
+        "\u2022 Release APK/AAB is unsigned\n"
+        "\u2022 Limit 50MB (larger \u2192 GoFile)\n"
+        "\u2022 One build at a time</blockquote>"
     )
     await edit_msg(q, txt, back_kb())
 
@@ -251,9 +255,9 @@ async def show_users(q):
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\U0001f465 JUMLAH PENGGUNA\n"
+        "\U0001f465 <b>TOTAL USERS</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
-        "\u25c6 Total user: " + str(count) + " orang</blockquote>"
+        "\u25c6 <b>Total users</b>: " + str(count) + "</blockquote>"
     )
     await edit_msg(q, txt, back_kb())
 
@@ -263,10 +267,25 @@ async def on_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     if doc and doc.file_name and doc.file_name.lower().endswith(".zip"):
         await update.message.reply_text(
-            "<blockquote>\U0001f4e6 File <b>" + doc.file_name + "</b> diterima!\n\n"
-            "Reply file ini dengan /build untuk mula compile.</blockquote>",
+            "<blockquote>\U0001f4e6 File <b>" + doc.file_name + "</b> received!\n\n"
+            "Reply to this file with /build to start compiling.</blockquote>",
             parse_mode="HTML",
         )
+
+
+# ── Media group tracker (for album /forward) ────────────
+async def on_message_track(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg and msg.media_group_id:
+        gid = msg.media_group_id
+        if gid not in media_group_cache:
+            media_group_cache[gid] = []
+        if msg.message_id not in media_group_cache[gid]:
+            media_group_cache[gid].append(msg.message_id)
+        # Keep cache small
+        if len(media_group_cache) > 100:
+            oldest = list(media_group_cache.keys())[0]
+            del media_group_cache[oldest]
 
 
 # ── /build ───────────────────────────────────────────────
@@ -281,20 +300,20 @@ async def cmd_build(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     joined = await check_join(ctx.bot, user.id)
     if not joined:
         await msg.reply_text(
-            "<blockquote>\u274c Sila join channel dahulu!</blockquote>",
+            "<blockquote>\u274c Please join the channel first!</blockquote>",
             parse_mode="HTML", reply_markup=join_kb(),
         )
         return
     if not msg.reply_to_message or not msg.reply_to_message.document:
         await msg.reply_text(
-            "<blockquote>\u274c Sila reply kepada file .zip dengan /build</blockquote>",
+            "<blockquote>\u274c Please reply to a .zip file with /build</blockquote>",
             parse_mode="HTML",
         )
         return
     doc = msg.reply_to_message.document
     if not doc.file_name or not doc.file_name.lower().endswith(".zip"):
         await msg.reply_text(
-            "<blockquote>\u274c File mestilah .zip</blockquote>",
+            "<blockquote>\u274c File must be .zip</blockquote>",
             parse_mode="HTML",
         )
         return
@@ -309,13 +328,14 @@ async def cmd_build(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     pos = qm.add(req)
     if pos == 0:
         status_msg = await msg.reply_text(
-            "<blockquote>\u2705 Project diterima! Mengesan jenis project...</blockquote>",
+            "<blockquote>\u2705 Project received! Detecting project type...</blockquote>",
             parse_mode="HTML",
         )
-        asyncio.create_task(process_build(ctx.bot, req, status_msg))
+        global build_task
+        build_task = asyncio.create_task(process_build(ctx.bot, req, status_msg))
     else:
         await msg.reply_text(
-            "<blockquote>\u23f3 Dalam queue. Posisi: #" + str(pos) + "\nTunggu giliran ya!</blockquote>",
+            "<blockquote>\u23f3 In queue. Position: #" + str(pos) + "\nPlease wait for your turn!</blockquote>",
             parse_mode="HTML",
         )
 
@@ -332,44 +352,85 @@ async def edit_status(bot, msg, text):
         pass
 
 
+async def notify_channel_success(bot, req, fname, ptype):
+    if not CHANNEL_ID:
+        return
+    try:
+        txt = (
+            "<blockquote>\u2705 <b>BUILD SUCCESSFUL</b>\n\n"
+            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+            "\u25c6 \U0001f464 <b>User</b>: @" + req["username"] + "\n"
+            "\u25c6 \U0001f4f1 <b>APK</b>: " + fname + "\n"
+            "\u25c6 \U0001f527 <b>Type</b>: " + ptype.upper() + "\n"
+            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+            "\U0001f916 @" + bot_username + "</blockquote>"
+        )
+        await bot.send_message(
+            chat_id=CHANNEL_ID, text=txt, parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"Channel notify failed: {e}")
+
+
 async def process_build(bot, req, status_msg):
-    global building
+    global building, build_task
     building = True
     chat_id = req["chat_id"]
     fname = req["file_name"]
     pname = fname.rsplit(".", 1)[0]
     bdir = os.path.join(TEMP_DIR, str(req["user_id"]), str(int(time.time())))
     os.makedirs(bdir, exist_ok=True)
+    cancelled = False
 
     try:
+        if shutdown_event.is_set():
+            cancelled = True
+            return
+
         # Download
-        await edit_status(bot, status_msg, "\U0001f4e5 Memuat turun file...")
+        await edit_status(bot, status_msg, "\U0001f4e5 Downloading file...")
         tg_file = await bot.get_file(req["file_id"])
         zip_path = os.path.join(bdir, fname)
         await tg_file.download_to_drive(zip_path)
 
+        if shutdown_event.is_set():
+            cancelled = True
+            return
+
         # Extract
-        await edit_status(bot, status_msg, "\U0001f4e6 Mengekstrak zip...")
+        await edit_status(bot, status_msg, "\U0001f4e6 Extracting zip...")
         project_dir = extract_zip(zip_path, bdir)
 
+        if shutdown_event.is_set():
+            cancelled = True
+            return
+
         # Detect
-        await edit_status(bot, status_msg, "\U0001f50d Mengesan jenis project...")
+        await edit_status(bot, status_msg, "\U0001f50d Detecting project type...")
         info = detect_project(project_dir)
         if not info:
-            await edit_status(bot, status_msg, "\u274c Project tidak disokong.\nPastikan Android Native atau Flutter.")
+            await edit_status(bot, status_msg, "\u274c Unsupported project.\nEnsure it's Android Native or Flutter.")
             return
 
         ptype = info["type"]
         await edit_status(
             bot, status_msg,
-            "\U0001f4f1 Detected: " + ptype.upper() + "\n\U0001f528 Sedang compile... (~5-20 min)",
+            "\U0001f4f1 Detected: <b>" + ptype.upper() + "</b>\n\U0001f528 Compiling... (~5-20 min)",
         )
+
+        if shutdown_event.is_set():
+            cancelled = True
+            return
 
         # Build
         result = await build_project(project_dir, info)
 
+        if shutdown_event.is_set():
+            cancelled = True
+            return
+
         if result["success"]:
-            await edit_status(bot, status_msg, "\u2705 Build berjaya! Menghantar file...")
+            await edit_status(bot, status_msg, "\u2705 Build successful! Sending files...")
             out_zip = os.path.join(bdir, pname + "_output.zip")
             with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
                 for fp in result["files"]:
@@ -377,10 +438,11 @@ async def process_build(bot, req, status_msg):
 
             fsize = os.path.getsize(out_zip)
             caption = (
-                "<blockquote>\u2705 Build berjaya!\n\n"
-                "\U0001f4f1 Project: " + fname + "\n"
-                "\U0001f527 Jenis: " + ptype.upper() + "\n\n"
-                "\u26a0\ufe0f Release APK/AAB unsigned.</blockquote>"
+                "<blockquote>\u2705 <b>Build Successful!</b>\n\n"
+                "\U0001f4f1 <b>Project</b>: " + fname + "\n"
+                "\U0001f527 <b>Type</b>: " + ptype.upper() + "\n\n"
+                "\u26a0\ufe0f Release APK/AAB is unsigned.\n\n"
+                "<b>BUILD BY @Earlxz</b></blockquote>"
             )
             if fsize <= 50 * 1024 * 1024:
                 with open(out_zip, "rb") as f:
@@ -395,22 +457,26 @@ async def process_build(bot, req, status_msg):
                     await bot.send_message(
                         chat_id=chat_id,
                         text=(
-                            "<blockquote>\u2705 Build berjaya!\n\n"
+                            "<blockquote>\u2705 <b>Build Successful!</b>\n\n"
                             "\U0001f4f1 " + fname + " (" + ptype.upper() + ")\n\n"
-                            "\U0001f4e5 File besar. Download:\n" + link + "</blockquote>"
+                            "\U0001f4e5 File too large. Download:\n" + link + "\n\n"
+                            "<b>BUILD BY @Earlxz</b></blockquote>"
                         ),
                         parse_mode="HTML",
                     )
                 else:
                     await bot.send_message(
                         chat_id=chat_id,
-                        text="<blockquote>\u274c File terlalu besar & upload gagal.</blockquote>",
+                        text="<blockquote>\u274c File too large & upload failed.</blockquote>",
                         parse_mode="HTML",
                     )
+            # Record successful build only
             await dm.add_build_history({
                 "user_id": req["user_id"], "username": req["username"],
                 "project_name": fname, "project_type": ptype, "success": True,
             })
+            # Notify channel on success only
+            await notify_channel_success(bot, req, fname, ptype)
         else:
             err_txt = result.get("error", "Unknown error")
             err_log = os.path.join(bdir, "error_log.txt")
@@ -424,16 +490,25 @@ async def process_build(bot, req, status_msg):
                     chat_id=chat_id, document=f,
                     filename=pname + "_error.zip",
                     caption=(
-                        "<blockquote>\u274c Build gagal.\n\n"
+                        "<blockquote>\u274c <b>Build Failed.</b>\n\n"
                         "\U0001f4f1 " + fname + " (" + ptype.upper() + ")\n\n"
-                        "Semak error log dalam zip.</blockquote>"
+                        "Check error log in zip.</blockquote>"
                     ),
                     parse_mode="HTML",
                 )
-            await dm.add_build_history({
-                "user_id": req["user_id"], "username": req["username"],
-                "project_name": fname, "project_type": ptype, "success": False,
-            })
+            # Failed builds NOT recorded — not counted in stats
+
+    except asyncio.CancelledError:
+        cancelled = True
+        logger.info("Build cancelled due to server restart")
+        try:
+            await edit_status(
+                bot, status_msg,
+                "\u23f8 Build paused \u2014 server restarting.\nWill resume automatically.",
+            )
+        except Exception:
+            pass
+
     except Exception as e:
         logger.error(f"Build error: {e}", exc_info=True)
         try:
@@ -444,44 +519,67 @@ async def process_build(bot, req, status_msg):
             )
         except Exception:
             pass
+
     finally:
         building = False
+        build_task = None
         shutil.rmtree(bdir, ignore_errors=True)
+        if cancelled or shutdown_event.is_set():
+            # Don't dequeue or start next — respawn_timer handles re-queuing
+            return
         qm.finish_current()
         nxt = qm.get_next()
         if nxt:
             try:
                 sm = await bot.send_message(
                     chat_id=nxt["chat_id"],
-                    text="<blockquote>\U0001f528 Giliran kau! Sedang proses...</blockquote>",
+                    text="<blockquote>\U0001f528 Your turn! Processing...</blockquote>",
                     parse_mode="HTML",
                 )
-                asyncio.create_task(process_build(bot, nxt, sm))
+                build_task = asyncio.create_task(process_build(bot, nxt, sm))
             except Exception as e:
                 logger.error(f"Next build failed: {e}")
 
 
-# ── /forward (owner only) ───────────────────────────────
+# ── /forward (owner only) — supports media albums ───────
 async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_TG_ID:
         return
     if not update.message.reply_to_message:
         await update.message.reply_text(
-            "<blockquote>\u274c Reply mesej yang nak forward.</blockquote>",
+            "<blockquote>\u274c Reply to a message to forward.</blockquote>",
             parse_mode="HTML",
         )
         return
+
+    reply = update.message.reply_to_message
     users = await dm.get_all_users()
+
+    # Collect message IDs — album or single
+    msg_ids = [reply.message_id]
+    if reply.media_group_id and reply.media_group_id in media_group_cache:
+        msg_ids = sorted(media_group_cache[reply.media_group_id])
+
     ok, fail = 0, 0
     for uid in users:
+        if int(uid) == OWNER_TG_ID:
+            continue  # Skip owner
         try:
-            await update.message.reply_to_message.forward(chat_id=int(uid))
+            for mid in msg_ids:
+                await ctx.bot.forward_message(
+                    chat_id=int(uid),
+                    from_chat_id=update.effective_chat.id,
+                    message_id=mid,
+                )
             ok += 1
         except Exception:
             fail += 1
         await asyncio.sleep(0.05)
+
     await update.message.reply_text(
-        "<blockquote>\u2705 Forward siap!\n\U0001f4e4 Berjaya: " + str(ok) + "\n\u274c Gagal: " + str(fail) + "</blockquote>",
+        "<blockquote>\u2705 <b>Forward complete!</b>\n"
+        "\U0001f4e4 Success: " + str(ok) + "\n"
+        "\u274c Failed: " + str(fail) + "</blockquote>",
         parse_mode="HTML",
     )
 
@@ -519,16 +617,37 @@ async def respawn():
 
 
 async def respawn_timer(app):
-    await asyncio.sleep(MAX_RUNTIME_SECONDS)
-    logger.info("Time limit approaching - respawning...")
+    # Wait until 10 seconds before max runtime
+    wait = max(0, MAX_RUNTIME_SECONDS - 10)
+    await asyncio.sleep(wait)
+    logger.info("10 seconds to restart — stopping current build...")
+    shutdown_event.set()
+
+    # Cancel current build task if running
+    if build_task and not build_task.done():
+        build_task.cancel()
+        try:
+            await asyncio.wait_for(asyncio.shield(build_task), timeout=5)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
+
+    # Re-queue current request if build didn't finish
+    if qm.current:
+        qm.queue.insert(0, qm.current)
+        qm.current = None
+
+    logger.info("Saving queue and respawning...")
     await dm.save_queue(qm.to_dict())
     await respawn()
-    await asyncio.sleep(10)
+    await asyncio.sleep(5)
     os._exit(0)
 
 
 # ── Post init ────────────────────────────────────────────
 async def post_init(app: Application):
+    global bot_username
+    me = await app.bot.get_me()
+    bot_username = me.username or ""
     data = await dm.load_queue()
     qm.from_dict(data)
     asyncio.create_task(respawn_timer(app))
@@ -542,6 +661,8 @@ def main():
     app.add_handler(CommandHandler("build", cmd_build))
     app.add_handler(CommandHandler("forward", cmd_forward))
     app.add_handler(CallbackQueryHandler(cb_handler))
+    # Media group tracker — runs first (group -1) to capture album message IDs
+    app.add_handler(MessageHandler(filters.ALL, on_message_track), group=-1)
     app.add_handler(MessageHandler(filters.Document.ALL, on_file))
     logger.info("Starting bot polling...")
     app.run_polling(drop_pending_updates=True)
