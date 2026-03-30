@@ -102,18 +102,18 @@ async def start_text():
         "<blockquote>"
         "\u2728 " + BOT_NAME + " \u2728\n"
         "\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u250c\n"
         "\u25c6 \U0001f451 <b>OWNER</b> : @" + OWNER_USERNAME + "\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 \U0001f5a5 <b>STATUS BOT</b> : ONLINE\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 \U0001f4c2 <b>UPLOAD BY</b> : GITHUB\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 \u23f1 <b>RESTART IN</b> : " + countdown() + "\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 \u2705 <b>BUILD APK</b> : " + str(total) + "\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u2514\n"
         "" + COUNTRY_FLAG + " CREATOR'S COUNTRY : MALAYSIA " + COUNTRY_FLAG + "\n"
         "Bot auto-compile APK \u2014 Native & Flutter"
@@ -202,15 +202,15 @@ async def show_building(q):
 
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\U0001f4ca <b>BUILD STATUS</b>\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 <b>Status</b>: " + status + cur + "\n"
         "\u25c6 <b>Total Native</b>: " + str(stats.get("total_native", 0)) + "\n"
         "\u25c6 <b>Total Flutter</b>: " + str(stats.get("total_flutter", 0)) + "\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\U0001f4cb <b>SUCCESSFUL BUILD HISTORY</b>\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
         + hist + "</blockquote>"
     )
     await edit_msg(q, txt, back_kb())
@@ -221,9 +221,9 @@ async def show_queue(q):
     cur = ("@" + qm.current["username"]) if qm.current else "None"
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u23f3 <b>BUILD QUEUE</b>\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
         "\u25c6 <b>Users in queue</b>: " + str(sz) + "\n"
         "\u25c6 <b>Currently compiling</b>: " + cur + "</blockquote>"
     )
@@ -233,9 +233,9 @@ async def show_queue(q):
 async def show_guide(q):
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\U0001f4d6 <b>GUIDE</b>\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
         "1\ufe0f\u20e3 Send <b>.zip</b> file to the bot\n"
         "2\ufe0f\u20e3 Reply to the file with /build\n"
         "3\ufe0f\u20e3 Bot auto-detects & compiles\n"
@@ -254,9 +254,9 @@ async def show_users(q):
     count = await dm.get_user_count()
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\U0001f465 <b>TOTAL USERS</b>\n"
-        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
         "\u25c6 <b>Total users</b>: " + str(count) + "</blockquote>"
     )
     await edit_msg(q, txt, back_kb())
@@ -359,12 +359,12 @@ async def notify_channel_success(bot, req, fname, ptype):
         queue_count = qm.get_size()
         txt = (
             "<blockquote><b>BUILD SUCCESSFUL</b>\n\n"
-            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
             "\u25c6 <b>User</b>: @" + req["username"] + "\n"
             "\u25c6 <b>APK</b>: " + fname + "\n"
             "\u25c6 <b>Type</b>: " + ptype.upper() + "\n"
-            "\u25c6 <b>Queue</b>: " + str(queue_count) + " user(s) waiting\n"
-            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+            "\u25c6 <b>Queue</b>: " + str(queue_count) + "\n"
+            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n<b>Build By:</b>"
             "@" + bot_username + "</blockquote>"
         )
         await bot.send_message(
