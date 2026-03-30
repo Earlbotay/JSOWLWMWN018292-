@@ -199,92 +199,128 @@ def _ver_tuple(v):
 
 
 async def fix_flutter_versions(project_dir, logs):
-    """Auto-fix Gradle/AGP versions in android/ to meet Flutter minimums."""
+    """Auto-fix Gradle/AGP versions in android/ to meet Flutter minimums.
+    Works like Native: detect AGP, map to correct Gradle, upgrade if needed."""
     android_dir = os.path.join(project_dir, "android")
     if not os.path.isdir(android_dir):
         return
-    min_gradle = "8.7"
-    min_agp = "8.1.1"
 
-    # 1. Fix Gradle version in gradle-wrapper.properties
-    props_path = os.path.join(android_dir, "gradle", "wrapper", "gradle-wrapper.properties")
-    if os.path.exists(props_path):
-        try:
-            with open(props_path, "r") as f:
-                content = f.read()
-            m = re.search(r"gradle-([0-9.]+)-", content)
-            if m:
-                cur = m.group(1)
-                cur_t = _ver_tuple(cur)
-                min_t = _ver_tuple(min_gradle)
-                # Pad for comparison
-                while len(cur_t) < len(min_t):
-                    cur_t = cur_t + (0,)
-                while len(min_t) < len(cur_t):
-                    min_t = min_t + (0,)
-                if cur_t < min_t:
-                    new_url = f"https\\://services.gradle.org/distributions/gradle-{min_gradle}-bin.zip"
-                    new_content = re.sub(r"distributionUrl=.*", f"distributionUrl={new_url}", content)
-                    with open(props_path, "w") as f:
-                        f.write(new_content)
-                    logs.append(f"Auto-fix: Gradle {cur} → {min_gradle}")
-        except Exception:
-            pass
+    min_agp = "8.1.1"    # Flutter minimum AGP
+    min_gradle = "8.7"    # Flutter minimum Gradle
 
-    # 2. Fix AGP version — check settings.gradle (newer) then build.gradle (older)
-    agp_fixed = False
+    # AGP -> minimum compatible Gradle version mapping (same logic as Native)
+    def agp_to_gradle(agp_ver):
+        parts = agp_ver.split(".")
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        if major == 8 and minor <= 1:
+            return "8.0"
+        elif major == 8 and minor <= 3:
+            return "8.4"
+        elif major == 8 and minor <= 5:
+            return "8.7"
+        elif major == 8 and minor <= 7:
+            return "8.9"
+        elif major >= 9:
+            return "8.11.1"
+        else:
+            return min_gradle  # Old AGP will be upgraded, use Flutter min
+
+    # -- Step 1: Detect current AGP version --
+    cur_agp = None
+    agp_file = None
+    agp_start = None
+    agp_end = None
+
+    # Check settings.gradle first (newer plugin style)
     for sg_name in ("settings.gradle", "settings.gradle.kts"):
         sg_path = os.path.join(android_dir, sg_name)
-        if os.path.exists(sg_path) and not agp_fixed:
+        if os.path.exists(sg_path):
             try:
                 with open(sg_path, "r") as f:
-                    content = f.read()
-                # plugins { id "com.android.application" version "8.1.0" }
-                m = re.search(
-                    r'(id\s+["\']com\.android\.application["\']\s+version\s+["\'])([0-9.]+)(["\'])',
-                    content
-                )
+                    sg_content = f.read()
+                pat = r'(id\s+["\x27]com\.android\.application["\x27]\s+version\s+["\x27])([0-9.]+)(["\x27])'
+                m = re.search(pat, sg_content)
                 if m:
                     cur_agp = m.group(2)
-                    cur_t = _ver_tuple(cur_agp)
-                    min_t = _ver_tuple(min_agp)
-                    while len(cur_t) < len(min_t):
-                        cur_t = cur_t + (0,)
-                    while len(min_t) < len(cur_t):
-                        min_t = min_t + (0,)
-                    if cur_t < min_t:
-                        new_content = content[:m.start(2)] + min_agp + content[m.end(2):]
-                        with open(sg_path, "w") as f:
-                            f.write(new_content)
-                        logs.append(f"Auto-fix: AGP {cur_agp} → {min_agp} ({sg_name})")
-                    agp_fixed = True
+                    agp_file = sg_path
+                    agp_start = m.start(2)
+                    agp_end = m.end(2)
+                    break
             except Exception:
                 pass
 
-    if not agp_fixed:
+    # Fallback: build.gradle (older classpath style)
+    if not cur_agp:
         for bg_name in ("build.gradle", "build.gradle.kts"):
             bg_path = os.path.join(android_dir, bg_name)
             if os.path.exists(bg_path):
                 try:
                     with open(bg_path, "r") as f:
-                        content = f.read()
-                    m = re.search(r"(com\.android\.tools\.build:gradle:)([0-9.]+)", content)
+                        bg_content = f.read()
+                    m = re.search(r"(com\.android\.tools\.build:gradle:)([0-9.]+)", bg_content)
                     if m:
                         cur_agp = m.group(2)
-                        cur_t = _ver_tuple(cur_agp)
-                        min_t = _ver_tuple(min_agp)
-                        while len(cur_t) < len(min_t):
-                            cur_t = cur_t + (0,)
-                        while len(min_t) < len(cur_t):
-                            min_t = min_t + (0,)
-                        if cur_t < min_t:
-                            new_content = content[:m.start(2)] + min_agp + content[m.end(2):]
-                            with open(bg_path, "w") as f:
-                                f.write(new_content)
-                            logs.append(f"Auto-fix: AGP {cur_agp} → {min_agp} ({bg_name})")
+                        agp_file = bg_path
+                        agp_start = m.start(2)
+                        agp_end = m.end(2)
                         break
                 except Exception:
                     pass
+
+    # -- Step 2: Upgrade AGP if below Flutter minimum --
+    final_agp = cur_agp or min_agp
+    if cur_agp and _ver_tuple(cur_agp) < _ver_tuple(min_agp):
+        final_agp = min_agp
+        if agp_file and agp_start is not None:
+            try:
+                with open(agp_file, "r") as f:
+                    fc = f.read()
+                new_fc = fc[:agp_start] + min_agp + fc[agp_end:]
+                with open(agp_file, "w") as f:
+                    f.write(new_fc)
+                logs.append(f"Auto-fix: AGP {cur_agp} -> {min_agp} ({os.path.basename(agp_file)})")
+            except Exception:
+                pass
+
+    # -- Step 3: Determine correct Gradle version from AGP --
+    target_gradle = agp_to_gradle(final_agp)
+    # Floor at Flutter minimum Gradle
+    if _ver_tuple(target_gradle) < _ver_tuple(min_gradle):
+        target_gradle = min_gradle
+
+    # -- Step 4: Update Gradle version in gradle-wrapper.properties --
+    props_path = os.path.join(android_dir, "gradle", "wrapper", "gradle-wrapper.properties")
+    if os.path.exists(props_path):
+        try:
+            with open(props_path, "r") as f:
+                pc = f.read()
+            m = re.search(r"gradle-([0-9.]+)-", pc)
+            if m:
+                cur_gradle = m.group(1)
+                if _ver_tuple(cur_gradle) < _ver_tuple(target_gradle):
+                    new_url = f"https\\://services.gradle.org/distributions/gradle-{target_gradle}-bin.zip"
+                    new_pc = re.sub(r"distributionUrl=.*", f"distributionUrl={new_url}", pc)
+                    with open(props_path, "w") as f:
+                        f.write(new_pc)
+                    logs.append(f"Auto-fix: Gradle {cur_gradle} -> {target_gradle}")
+        except Exception:
+            pass
+    else:
+        # Create gradle-wrapper.properties if missing
+        try:
+            os.makedirs(os.path.join(android_dir, "gradle", "wrapper"), exist_ok=True)
+            with open(props_path, "w") as f:
+                f.write(
+                    "distributionBase=GRADLE_USER_HOME\n"
+                    "distributionPath=wrapper/dists\n"
+                    f"distributionUrl=https\\://services.gradle.org/distributions/gradle-{target_gradle}-bin.zip\n"
+                    "zipStoreBase=GRADLE_USER_HOME\n"
+                    "zipStorePath=wrapper/dists\n"
+                )
+            logs.append(f"Auto-fix: created gradle-wrapper.properties (Gradle {target_gradle})")
+        except Exception:
+            pass
 
 
 async def build_native(project_dir, config):
