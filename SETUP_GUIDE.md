@@ -1,6 +1,6 @@
 # 🏗 EARL STORE BUILD APK — Setup Guide
 
-## Arsitektur
+## Arsitekturs
 
 ```
 ┌─────────────────────────────────────────────────────┐
