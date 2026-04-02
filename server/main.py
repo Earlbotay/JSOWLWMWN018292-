@@ -311,6 +311,7 @@ async def show_guide(q):
         "\u26a0\ufe0f <b>NOTE:</b>\n"
         "\u2022 <b>Source Code</b>: Android Native / Flutter\n"
         "\u2022 <b>Smali</b>: apktool (auto-detect Native/Flutter)\n"
+        "\u2022 <b>Smali APKS</b>: Include splits/ folder for split APK output\n"
         "\u2022 Release APK/AAB is unsigned\n"
         "\u2022 " + limit_text + "\n"
         "\u2022 One build at a time</blockquote>"
@@ -461,9 +462,9 @@ async def process_build(bot, req, status_msg):
 
         # Download
         await edit_status(bot, status_msg, "\U0001f4e5 Downloading file...")
-        tg_file = await bot.get_file(req["file_id"])
+        tg_file = await bot.get_file(req["file_id"], read_timeout=600)
         zip_path = os.path.join(bdir, fname)
-        await tg_file.download_to_drive(zip_path)
+        await tg_file.download_to_drive(zip_path, read_timeout=600)
 
         if shutdown_event.is_set():
             cancelled = True
@@ -512,40 +513,51 @@ async def process_build(bot, req, status_msg):
 
         if result["success"]:
             await edit_status(bot, status_msg, "\u2705 Build successful! Sending files...")
-            out_zip = os.path.join(bdir, pname + "_output.zip")
-            with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+
+            is_apks = result.get("output_format") == "apks"
+            is_signed = result.get("signed", False)
+
+            out_path = os.path.join(bdir, pname + "_output.zip")
+            with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for fp in result["files"]:
                     zf.write(fp, os.path.basename(fp))
+            out_name = pname + "_output.zip"
 
-            fsize = os.path.getsize(out_zip)
+            fsize = os.path.getsize(out_path)
+            if ptype == "smali":
+                fmt = "APKS" if is_apks else "APK"
+                sign_note = f"\u2705 {fmt} signed with debug key." if is_signed else f"\u26a0\ufe0f {fmt} is unsigned."
+            else:
+                sign_note = "\u26a0\ufe0f Release APK/AAB is unsigned."
             caption = (
                 "<blockquote><b>Build Successful!</b>\n\n"
                 "<b>Project</b>: " + fname + "\n"
                 "<b>Type</b>: " + display_type + "\n\n"
-                "\u26a0\ufe0f Release APK/AAB is unsigned.\n\n"
+                "" + sign_note + "\n\n"
                 "<b>BUILD BY @Earlxz</b></blockquote>"
             )
             max_upload = 2000 * 1024 * 1024 if USE_LOCAL_API else 50 * 1024 * 1024
             if fsize <= max_upload:
-                with open(out_zip, "rb") as f:
+                with open(out_path, "rb") as f:
                     await bot.send_document(
                         chat_id=chat_id, document=f,
-                        filename=pname + "_output.zip",
+                        filename=out_name,
                         caption=caption, parse_mode="HTML",
+                        read_timeout=600, write_timeout=600,
                     )
             else:
                 # >2GB: upload to GoFile + store for web portal
-                gofile_link = await upload_to_gofile(out_zip)
+                gofile_link = await upload_to_gofile(out_path)
 
                 # Store locally for web portal
                 dl_text = ""
                 if tunnel_url:
                     token = uuid.uuid4().hex[:8]
-                    dl_path = os.path.join(DOWNLOAD_DIR, token + "_" + pname + "_output.zip")
-                    shutil.move(out_zip, dl_path)
+                    dl_path = os.path.join(DOWNLOAD_DIR, token + "_" + out_name)
+                    shutil.move(out_path, dl_path)
                     download_files[token] = {
                         "path": dl_path,
-                        "filename": pname + "_output.zip",
+                        "filename": out_name,
                         "user_id": req["user_id"],
                     }
                     left = max(0, MAX_RUNTIME_SECONDS - (time.time() - SERVER_START_TIME))
@@ -857,7 +869,14 @@ async def post_init(app: Application):
 
 # ── Main ─────────────────────────────────────────────────
 def main():
-    builder = Application.builder().token(BOT_TOKEN)
+    builder = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .read_timeout(600)
+        .write_timeout(600)
+        .connect_timeout(60)
+        .pool_timeout(60)
+    )
     if USE_LOCAL_API:
         builder = builder.base_url(f"{LOCAL_API_URL}/bot").base_file_url(f"{LOCAL_API_URL}/file/bot")
     app = builder.post_init(post_init).build()

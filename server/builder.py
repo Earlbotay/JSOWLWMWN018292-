@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import logging
+import zipfile
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -423,10 +424,165 @@ async def build_flutter(project_dir, config):
     return {"success": True, "files": files, "logs": logs}
 
 
+def _find_zipalign():
+    """Find zipalign binary in Android SDK build-tools."""
+    if shutil.which("zipalign"):
+        return "zipalign"
+    ah = os.environ.get("ANDROID_HOME", "/usr/local/lib/android/sdk")
+    bt_dir = os.path.join(ah, "build-tools")
+    if os.path.isdir(bt_dir):
+        for ver in sorted(os.listdir(bt_dir), reverse=True):
+            za = os.path.join(bt_dir, ver, "zipalign")
+            if os.path.exists(za):
+                return za
+    return None
+
+
+def _fix_apktool_donotcompress(project_dir):
+    """Ensure native .so files won't be compressed in rebuilt APK.
+    If extractNativeLibs=false (modern APKs), .so must be stored
+    uncompressed and page-aligned or the APK won't install."""
+    yml_path = os.path.join(project_dir, "apktool.yml")
+    if not os.path.exists(yml_path):
+        return False
+    lib_dir = os.path.join(project_dir, "lib")
+    if not os.path.isdir(lib_dir):
+        return False
+    # Check if any .so files exist
+    has_so = any(
+        f.endswith(".so")
+        for _, _, files in os.walk(lib_dir)
+        for f in files
+    )
+    if not has_so:
+        return False
+    with open(yml_path, "r") as f:
+        content = f.read()
+    # Already has .so in doNotCompress
+    if re.search(r'-\s*["\']?\.?so["\']?\s*$', content, re.MULTILINE):
+        return False
+    # Add .so to doNotCompress list
+    if "doNotCompress:" in content:
+        content = re.sub(r'(doNotCompress:\n)', r'\1- .so\n', content)
+    else:
+        content += "\ndoNotCompress:\n- .so\n"
+    with open(yml_path, "w") as f:
+        f.write(content)
+    return True
+
+
+def _find_apksigner():
+    """Find apksigner in Android SDK build-tools."""
+    ah = os.environ.get("ANDROID_HOME", "/usr/local/lib/android/sdk")
+    bt_dir = os.path.join(ah, "build-tools")
+    if os.path.isdir(bt_dir):
+        for ver in sorted(os.listdir(bt_dir), reverse=True):
+            path = os.path.join(bt_dir, ver, "apksigner")
+            if os.path.exists(path):
+                return path
+    return None
+
+
+async def _ensure_debug_keystore():
+    """Generate a debug keystore for signing. Returns path or None."""
+    ks_path = "/tmp/debug-sign.jks"
+    if os.path.exists(ks_path):
+        return ks_path
+    code, _, _ = await run_cmd(
+        'keytool -genkeypair -v -keystore ' + ks_path +
+        ' -alias debug -keyalg RSA -keysize 2048 -validity 10000'
+        ' -storepass android -keypass android'
+        ' -dname "CN=Debug,O=Debug,C=US"',
+        timeout=30,
+    )
+    return ks_path if code == 0 and os.path.exists(ks_path) else None
+
+
+async def _sign_apk(apk_path, keystore, apksigner_bin, logs):
+    """Sign a zipaligned APK using apksigner."""
+    code, _, err = await run_cmd(
+        f'"{apksigner_bin}" sign --ks "{keystore}" --ks-key-alias debug'
+        f' --ks-pass pass:android --key-pass pass:android "{apk_path}"',
+        timeout=120,
+    )
+    if code == 0:
+        logs.append(f"Signed: {os.path.basename(apk_path)}")
+        return True
+    logs.append(f"Sign FAIL: {os.path.basename(apk_path)} — {(err or '')[:200]}")
+    return False
+
+
+def _strip_apk_signatures(apk_path):
+    """Remove META-INF/ (signatures) from an APK so it can be re-signed."""
+    tmp_path = apk_path + '.unsigned'
+    try:
+        with zipfile.ZipFile(apk_path, 'r') as zin:
+            with zipfile.ZipFile(tmp_path, 'w') as zout:
+                for item in zin.infolist():
+                    if not item.filename.upper().startswith('META-INF/'):
+                        zout.writestr(item, zin.read(item.filename))
+        os.replace(tmp_path, apk_path)
+        return True
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return False
+
+
+async def _package_as_apks(base_apk, splits_dir, output_path, zipalign_bin, apksigner_bin, keystore, logs):
+    """Package rebuilt base.apk + original split APKs into .apks (ZIP) format.
+    Strips original signatures, zipaligns, signs with debug key, then packages."""
+    split_apks = sorted([
+        os.path.join(splits_dir, f)
+        for f in os.listdir(splits_dir)
+        if f.lower().endswith('.apk')
+    ])
+    if not split_apks:
+        logs.append("splits/: no APK files found, skipping APKS packaging")
+        return None
+
+    # Strip existing signatures from split APKs
+    stripped = 0
+    for sa in split_apks:
+        if _strip_apk_signatures(sa):
+            stripped += 1
+    if stripped:
+        logs.append(f"Stripped signatures from {stripped} split APK(s)")
+
+    # Zipalign splits if possible
+    if zipalign_bin:
+        for sa in split_apks:
+            aligned = sa + '.aligned'
+            code, _, _ = await run_cmd(
+                f'"{zipalign_bin}" -p -f 4 "{sa}" "{aligned}"',
+                timeout=60,
+            )
+            if code == 0 and os.path.exists(aligned):
+                os.replace(aligned, sa)
+
+    # Sign splits with same debug key as base.apk
+    if apksigner_bin and keystore:
+        for sa in split_apks:
+            await _sign_apk(sa, keystore, apksigner_bin, logs)
+
+    # Create .apks file (ZIP with STORED compression — APKs are already compressed)
+    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_STORED) as zf:
+        zf.write(base_apk, 'base.apk')
+        for sa in split_apks:
+            zf.write(sa, os.path.basename(sa))
+
+    logs.append(f"APKS packaged: base.apk + {len(split_apks)} split(s)")
+    return output_path
+
+
 async def build_smali(project_dir, config):
     logs = []
     await setup_java(config.get("java_version", "17"))
     logs.append(f"Java {config.get('java_version', '17')} ready")
+
+    # Pre-build: ensure .so in doNotCompress (fixes extractNativeLibs=false)
+    if _fix_apktool_donotcompress(project_dir):
+        logs.append("Auto-fix: added .so to doNotCompress (apktool.yml)")
 
     # Build with apktool (try --use-aapt2 first)
     code, out, err = await run_cmd("apktool b . --use-aapt2", cwd=project_dir)
@@ -450,7 +606,49 @@ async def build_smali(project_dir, config):
 
     if not files:
         return {"success": False, "error": f"No output APK found in dist/\n{err[-2000:]}", "logs": logs}
-    return {"success": True, "files": files, "logs": logs}
+
+    # Post-build: zipalign APKs (page-align native libs for compatibility)
+    zipalign = _find_zipalign()
+    if zipalign:
+        for i, apk_path in enumerate(files):
+            aligned_path = apk_path + ".aligned"
+            zcode, _, zerr = await run_cmd(
+                f'"{zipalign}" -p -f 4 "{apk_path}" "{aligned_path}"',
+                timeout=120,
+            )
+            if zcode == 0 and os.path.exists(aligned_path):
+                os.replace(aligned_path, apk_path)
+                logs.append(f"zipalign: OK ({os.path.basename(apk_path)})")
+            else:
+                logs.append(f"zipalign: FAIL ({zerr[:200] if zerr else 'unknown'})")
+    else:
+        logs.append("zipalign: not found (skipped)")
+
+    # Sign APK(s) with debug key
+    apksigner = _find_apksigner()
+    keystore = await _ensure_debug_keystore()
+    signed = False
+    if apksigner and keystore:
+        sign_results = []
+        for p in files:
+            sign_results.append(await _sign_apk(p, keystore, apksigner, logs))
+        signed = all(sign_results)
+    else:
+        if not apksigner:
+            logs.append("apksigner: not found (signing skipped)")
+        if not keystore:
+            logs.append("keystore: generation failed (signing skipped)")
+
+    # Check for splits/ directory → package as APKS
+    splits_dir = os.path.join(project_dir, "splits")
+    if os.path.isdir(splits_dir):
+        apks_name = os.path.splitext(os.path.basename(files[0]))[0] + ".apks"
+        apks_path = os.path.join(os.path.dirname(files[0]), apks_name)
+        packaged = await _package_as_apks(files[0], splits_dir, apks_path, zipalign, apksigner, keystore, logs)
+        if packaged:
+            return {"success": True, "files": [packaged], "logs": logs, "output_format": "apks", "signed": signed}
+
+    return {"success": True, "files": files, "logs": logs, "signed": signed}
 
 
 async def build_project(project_dir, project_info):
