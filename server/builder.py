@@ -529,6 +529,27 @@ def _strip_apk_signatures(apk_path):
         return False
 
 
+def _find_splits_dir(project_dir):
+    """Find directory containing split APK files.
+    Searches: project_dir children, then parent dir children.
+    Matches any folder containing split_*.apk files, regardless of folder name."""
+    search_roots = [project_dir, os.path.dirname(project_dir)]
+    for root in search_roots:
+        if not os.path.isdir(root):
+            continue
+        for name in os.listdir(root):
+            candidate = os.path.join(root, name)
+            if not os.path.isdir(candidate):
+                continue
+            has_split_apks = any(
+                f.lower().startswith("split_") and f.lower().endswith(".apk")
+                for f in os.listdir(candidate)
+            )
+            if has_split_apks:
+                return candidate
+    return None
+
+
 async def _package_as_apks(base_apk, splits_dir, output_path, zipalign_bin, apksigner_bin, keystore, logs):
     """Package rebuilt base.apk + original split APKs into .apks (ZIP) format.
     Strips original signatures, zipaligns, signs with debug key, then packages."""
@@ -639,15 +660,11 @@ async def build_smali(project_dir, config):
         if not keystore:
             logs.append("keystore: generation failed (signing skipped)")
 
-    # Check for splits/ directory → package as APKS
-    # Search in project dir first, then parent (user may put splits/ alongside project folder)
-    splits_dir = os.path.join(project_dir, "splits")
-    if not os.path.isdir(splits_dir):
-        parent_splits = os.path.join(os.path.dirname(project_dir), "splits")
-        if os.path.isdir(parent_splits):
-            splits_dir = parent_splits
-            logs.append(f"Found splits/ in parent directory")
-    if os.path.isdir(splits_dir):
+    # Check for split APK directory → package as APKS
+    # Flexible detection: search for any folder containing split_*.apk files
+    splits_dir = _find_splits_dir(project_dir)
+    if splits_dir:
+        logs.append(f"Found split APKs in: {os.path.basename(splits_dir)}/")
         apks_name = os.path.splitext(os.path.basename(files[0]))[0] + ".apks"
         apks_path = os.path.join(os.path.dirname(files[0]), apks_name)
         packaged = await _package_as_apks(files[0], splits_dir, apks_path, zipalign, apksigner, keystore, logs)
