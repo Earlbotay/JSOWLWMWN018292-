@@ -66,14 +66,13 @@ jobs:
             echo "available=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Cache Telegram Bot API Server
+      - name: Restore Telegram Bot API Server
         id: cache-tg-api
         if: steps.check-local-api.outputs.available == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: /usr/local/bin/telegram-bot-api
           key: tg-bot-api-v1
-          save-always: true
 
       - name: Build Telegram Bot API Server
         if: steps.check-local-api.outputs.available == 'true' && steps.cache-tg-api.outputs.cache-hit != 'true'
@@ -86,16 +85,22 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local ..
           cmake --build . --target install -j$(nproc)
 
-      - name: Cache Telegram Bot API Data
+      - name: Save Telegram Bot API Server
+        if: steps.check-local-api.outputs.available == 'true' && steps.cache-tg-api.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /usr/local/bin/telegram-bot-api
+          key: tg-bot-api-v1
+
+      - name: Restore Telegram Bot API Data
         id: cache-tg-data
         if: steps.check-local-api.outputs.available == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: /home/runner/tg-api-data
           key: tg-api-data-${{ github.run_id }}
           restore-keys: |
             tg-api-data-
-          save-always: true
 
       - name: Start Telegram Bot API Server
         if: steps.check-local-api.outputs.available == 'true'
@@ -123,3 +128,10 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
         run: python server/main.py
+
+      - name: Save Telegram Bot API Data
+        if: always() && steps.check-local-api.outputs.available == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/tg-api-data
+          key: tg-api-data-${{ github.run_id }}
