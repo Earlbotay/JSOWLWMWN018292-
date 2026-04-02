@@ -73,6 +73,7 @@ jobs:
         with:
           path: /usr/local/bin/telegram-bot-api
           key: tg-bot-api-v1
+          save-always: true
 
       - name: Build Telegram Bot API Server
         if: steps.check-local-api.outputs.available == 'true' && steps.cache-tg-api.outputs.cache-hit != 'true'
@@ -94,6 +95,7 @@ jobs:
           key: tg-api-data-${{ github.run_id }}
           restore-keys: |
             tg-api-data-
+          save-always: true
 
       - name: Start Telegram Bot API Server
         if: steps.check-local-api.outputs.available == 'true'
