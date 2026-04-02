@@ -16,6 +16,7 @@ def extract_zip(zip_path, dest):
         markers = (
             "pubspec.yaml", "build.gradle", "build.gradle.kts",
             "settings.gradle", "settings.gradle.kts", "app",
+            "apktool.yml",
         )
         if any(os.path.exists(os.path.join(nested, m)) for m in markers):
             return nested
@@ -28,6 +29,8 @@ def _detect_type(project_dir):
     for name in ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"):
         if os.path.exists(os.path.join(project_dir, name)):
             return "native"
+    if os.path.exists(os.path.join(project_dir, "apktool.yml")):
+        return "smali"
     return None
 
 
@@ -123,10 +126,48 @@ def _detect_flutter(project_dir):
     return cfg
 
 
+def _detect_smali(project_dir):
+    cfg = {
+        "java_version": "17",
+        "min_sdk": None,
+        "target_sdk": None,
+        "sub_type": "native",
+    }
+    apktool_yml = os.path.join(project_dir, "apktool.yml")
+    if os.path.exists(apktool_yml):
+        try:
+            with open(apktool_yml, "r") as f:
+                content = f.read()
+            m = re.search(r"minSdkVersion:\s*'?(\d+)'?", content)
+            if m:
+                cfg["min_sdk"] = m.group(1)
+            m = re.search(r"targetSdkVersion:\s*'?(\d+)'?", content)
+            if m:
+                cfg["target_sdk"] = m.group(1)
+        except Exception:
+            pass
+
+    # Detect if originally Flutter or Native
+    flutter_assets = os.path.join(project_dir, "assets", "flutter_assets")
+    if os.path.exists(flutter_assets):
+        cfg["sub_type"] = "flutter"
+    else:
+        lib_dir = os.path.join(project_dir, "lib")
+        if os.path.isdir(lib_dir):
+            for root, dirs, files in os.walk(lib_dir):
+                if "libflutter.so" in files:
+                    cfg["sub_type"] = "flutter"
+                    break
+
+    return cfg
+
+
 def detect_project(project_dir):
     t = _detect_type(project_dir)
     if t == "flutter":
         return {"type": "flutter", "config": _detect_flutter(project_dir)}
     if t == "native":
         return {"type": "native", "config": _detect_native(project_dir)}
+    if t == "smali":
+        return {"type": "smali", "config": _detect_smali(project_dir)}
     return None

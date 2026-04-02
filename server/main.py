@@ -4,7 +4,12 @@ import os
 import time
 import zipfile
 import shutil
+import random
+import string
+import uuid
+import re
 import aiohttp
+from aiohttp import web as aio_web
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -17,11 +22,14 @@ from config import (
     PAT_TOKEN, PRIVATE_REPO, VIDEO_URL,
     BOT_NAME, OWNER_USERNAME, COUNTRY_FLAG,
     SERVER_START_TIME, MAX_RUNTIME_SECONDS, TEMP_DIR,
+    USE_LOCAL_API, LOCAL_API_URL,
+    WEB_PORT,
 )
 from data_manager import DataManager
 from queue_manager import QueueManager
 from detector import extract_zip, detect_project
 from builder import build_project, upload_to_gofile
+from web_server import create_web_app
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +46,15 @@ build_task = None
 shutdown_event = asyncio.Event()
 media_group_cache = {}
 bot_username = ""
+
+# ── Web / Tunnel state ──────────────────────────────────
+code_ids = {}          # code -> {user_id, username, chat_id}
+download_files = {}    # token -> {path, filename, user_id}
+tunnel_url = None
+tunnel_proc = None
+application = None
+DOWNLOAD_DIR = os.path.join(TEMP_DIR, "downloads")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -95,9 +112,42 @@ async def check_join(bot, user_id):
         return False
 
 
-async def start_text():
+# ── Code ID helpers ──────────────────────────────────────
+def generate_code():
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        if code not in code_ids:
+            return code
+
+
+def get_or_create_code(user_id, username, chat_id):
+    for code, info in code_ids.items():
+        if info["user_id"] == user_id:
+            return code
+    code = generate_code()
+    code_ids[code] = {"user_id": user_id, "username": username, "chat_id": chat_id}
+    return code
+
+
+async def start_text(user_id=None):
     stats = await dm.get_build_stats()
     total = stats.get("total_success", 0)
+
+    web_line = ""
+    if tunnel_url and user_id:
+        user_code = None
+        for code, info in code_ids.items():
+            if info["user_id"] == user_id:
+                user_code = code
+                break
+        if user_code:
+            web_line = (
+                "\u25c6 \U0001f310 <b>WEB</b> : <a href=\"" + tunnel_url + "\">Download Portal</a>\n"
+                "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                "\u25c6 \U0001f511 <b>CODE</b> : <code>" + user_code + "</code>\n"
+                "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+            )
+
     return (
         "<blockquote>"
         "\u2728 " + BOT_NAME + " \u2728\n"
@@ -114,9 +164,10 @@ async def start_text():
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\u25c6 \u2705 <b>BUILD APK</b> : " + str(total) + "\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+        + web_line +
         "\u2514\n"
         "" + COUNTRY_FLAG + " CREATOR'S COUNTRY : MALAYSIA " + COUNTRY_FLAG + "\n"
-        "Bot auto-compile APK \u2014 Native & Flutter"
+        "Bot auto-compile APK \u2014 Native, Flutter & Smali"
         "</blockquote>"
     )
 
@@ -138,7 +189,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt, parse_mode="HTML", reply_markup=join_kb())
         return
 
-    txt = await start_text()
+    # Generate code ID for download portal
+    get_or_create_code(user.id, user.username or user.first_name or str(user.id), update.effective_chat.id)
+
+    txt = await start_text(user.id)
     global video_file_id
     video_url = VIDEO_URL
     try:
@@ -167,7 +221,8 @@ async def cb_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if d == "check_join":
         if await check_join(ctx.bot, q.from_user.id):
-            await edit_msg(q, await start_text(), main_kb())
+            get_or_create_code(q.from_user.id, q.from_user.username or q.from_user.first_name or str(q.from_user.id), q.message.chat_id)
+            await edit_msg(q, await start_text(q.from_user.id), main_kb())
         else:
             await q.answer("\u274c You haven't joined yet!", show_alert=True)
     elif d == "building":
@@ -179,7 +234,7 @@ async def cb_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif d == "total_user":
         await show_users(q)
     elif d == "back":
-        await edit_msg(q, await start_text(), main_kb())
+        await edit_msg(q, await start_text(q.from_user.id), main_kb())
 
 
 async def show_building(q):
@@ -200,14 +255,25 @@ async def show_building(q):
     if not hist:
         hist = "\nNo records yet"
 
+    sn = stats.get("total_smali_native", 0)
+    sf = stats.get("total_smali_flutter", 0)
+    # Backward compat: old total_smali
+    old_smali = stats.get("total_smali", 0)
+    if old_smali and not sn and not sf:
+        sn = old_smali
+
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\U0001f4ca <b>BUILD STATUS</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-        "\u25c6 <b>Status</b>: " + status + cur + "\n"
-        "\u25c6 <b>Total Native</b>: " + str(stats.get("total_native", 0)) + "\n"
-        "\u25c6 <b>Total Flutter</b>: " + str(stats.get("total_flutter", 0)) + "\n\n"
+        "\u25c6 <b>Status</b>: " + status + cur + "\n\n"
+        "\U0001f4bb <b>Source Code Level</b>\n"
+        "\u25c6 Native: " + str(stats.get("total_native", 0)) + "\n"
+        "\u25c6 Flutter: " + str(stats.get("total_flutter", 0)) + "\n\n"
+        "\U0001f9ec <b>Smali Level</b>\n"
+        "\u25c6 Native: " + str(sn) + "\n"
+        "\u25c6 Flutter: " + str(sf) + "\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
         "\U0001f4cb <b>SUCCESSFUL BUILD HISTORY</b>\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
@@ -231,6 +297,7 @@ async def show_queue(q):
 
 
 async def show_guide(q):
+    limit_text = "No file size limit" if USE_LOCAL_API else "Limit 50MB (larger \u2192 GoFile)"
     txt = (
         "<blockquote>\u2728 " + BOT_NAME + " \u2728\n\n"
         "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
@@ -242,9 +309,10 @@ async def show_guide(q):
         "4\ufe0f\u20e3 Wait ~5-20 minutes\n"
         "5\ufe0f\u20e3 Bot sends APK + AAB\n\n"
         "\u26a0\ufe0f <b>NOTE:</b>\n"
-        "\u2022 Android Native/Flutter only\n"
+        "\u2022 <b>Source Code</b>: Android Native / Flutter\n"
+        "\u2022 <b>Smali</b>: apktool (auto-detect Native/Flutter)\n"
         "\u2022 Release APK/AAB is unsigned\n"
-        "\u2022 Limit 50MB (larger \u2192 GoFile)\n"
+        "\u2022 " + limit_text + "\n"
         "\u2022 One build at a time</blockquote>"
     )
     await edit_msg(q, txt, back_kb())
@@ -282,7 +350,6 @@ async def on_message_track(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             media_group_cache[gid] = []
         if msg.message_id not in media_group_cache[gid]:
             media_group_cache[gid].append(msg.message_id)
-        # Keep cache small
         if len(media_group_cache) > 500:
             oldest = list(media_group_cache.keys())[0]
             del media_group_cache[oldest]
@@ -318,6 +385,9 @@ async def cmd_build(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Ensure code ID exists
+    get_or_create_code(user.id, user.username or user.first_name or str(user.id), msg.chat_id)
+
     req = {
         "user_id": user.id,
         "username": user.username or user.first_name or str(user.id),
@@ -352,7 +422,7 @@ async def edit_status(bot, msg, text):
         pass
 
 
-async def notify_channel_success(bot, req, fname, ptype):
+async def notify_channel_success(bot, req, fname, display_type):
     if not CHANNEL_ID:
         return
     try:
@@ -362,10 +432,10 @@ async def notify_channel_success(bot, req, fname, ptype):
             "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
             "\u25c6 <b>User</b>: @" + req["username"] + "\n"
             "\u25c6 <b>APK</b>: " + fname + "\n"
-            "\u25c6 <b>Type</b>: " + ptype.upper() + "\n"
+            "\u25c6 <b>Type</b>: " + display_type + "\n"
             "\u25c6 <b>Queue</b>: " + str(queue_count) + "\n"
             "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n<b>Build By:</b>"
-            "@" + bot_username + "</blockquote>"
+            " @" + bot_username + "</blockquote>"
         )
         await bot.send_message(
             chat_id=CHANNEL_ID, text=txt, parse_mode="HTML",
@@ -411,13 +481,22 @@ async def process_build(bot, req, status_msg):
         await edit_status(bot, status_msg, "\U0001f50d Detecting project type...")
         info = detect_project(project_dir)
         if not info:
-            await edit_status(bot, status_msg, "\u274c Unsupported project.\nEnsure it's Android Native or Flutter.")
+            await edit_status(bot, status_msg, "\u274c Unsupported project.\nEnsure it's Android Native, Flutter or Smali (apktool).")
             return
 
         ptype = info["type"]
+        stat_type = ptype
+        display_type = ptype.upper()
+
+        # Smali sub-type
+        if ptype == "smali":
+            sub = info["config"].get("sub_type", "native")
+            display_type = "SMALI (" + sub.upper() + ")"
+            stat_type = "smali_" + sub
+
         await edit_status(
             bot, status_msg,
-            "Detected: <b>" + ptype.upper() + "</b>\nCompiling & Building ... (~5-20 min)",
+            "Detected: <b>" + display_type + "</b>\nCompiling & Building ... (~5-20 min)",
         )
 
         if shutdown_event.is_set():
@@ -442,11 +521,12 @@ async def process_build(bot, req, status_msg):
             caption = (
                 "<blockquote><b>Build Successful!</b>\n\n"
                 "<b>Project</b>: " + fname + "\n"
-                "<b>Type</b>: " + ptype.upper() + "\n\n"
+                "<b>Type</b>: " + display_type + "\n\n"
                 "\u26a0\ufe0f Release APK/AAB is unsigned.\n\n"
                 "<b>BUILD BY @Earlxz</b></blockquote>"
             )
-            if fsize <= 50 * 1024 * 1024:
+            max_upload = 2000 * 1024 * 1024 if USE_LOCAL_API else 50 * 1024 * 1024
+            if fsize <= max_upload:
                 with open(out_zip, "rb") as f:
                     await bot.send_document(
                         chat_id=chat_id, document=f,
@@ -454,15 +534,55 @@ async def process_build(bot, req, status_msg):
                         caption=caption, parse_mode="HTML",
                     )
             else:
-                link = await upload_to_gofile(out_zip)
-                if link:
+                # >2GB: upload to GoFile + store for web portal
+                gofile_link = await upload_to_gofile(out_zip)
+
+                # Store locally for web portal
+                dl_text = ""
+                if tunnel_url:
+                    token = uuid.uuid4().hex[:8]
+                    dl_path = os.path.join(DOWNLOAD_DIR, token + "_" + pname + "_output.zip")
+                    shutil.move(out_zip, dl_path)
+                    download_files[token] = {
+                        "path": dl_path,
+                        "filename": pname + "_output.zip",
+                        "user_id": req["user_id"],
+                    }
+                    left = max(0, MAX_RUNTIME_SECONDS - (time.time() - SERVER_START_TIME))
+                    h, r = divmod(int(left), 3600)
+                    m, _ = divmod(r, 60)
+                    user_code = ""
+                    for code, info_c in code_ids.items():
+                        if info_c["user_id"] == req["user_id"]:
+                            user_code = code
+                            break
+                    dl_text = (
+                        "\n\U0001f310 <b>Web Portal</b>: " + tunnel_url + "\n"
+                        "\U0001f511 Code: <code>" + user_code + "</code>\n"
+                        "\u23f3 Link aktif: " + str(h) + "j " + str(m) + "m\n"
+                    )
+
+                if gofile_link:
                     await bot.send_message(
                         chat_id=chat_id,
                         text=(
                             "<blockquote><b>Build Successful!</b>\n\n"
-                            "" + fname + " (" + ptype.upper() + ")\n\n"
-                            "File too large. Download:\n" + link + "\n\n"
-                            "<b>BUILD BY @Earlxz</b></blockquote>"
+                            "" + fname + " (" + display_type + ")\n\n"
+                            "\U0001f4e5 <b>GoFile</b>: " + gofile_link + "\n"
+                            + dl_text +
+                            "\n<b>BUILD BY @Earlxz</b></blockquote>"
+                        ),
+                        parse_mode="HTML",
+                    )
+                elif dl_text:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=(
+                            "<blockquote><b>Build Successful!</b>\n\n"
+                            "" + fname + " (" + display_type + ")\n\n"
+                            "File too large for Telegram.\n"
+                            + dl_text +
+                            "\n<b>BUILD BY @Earlxz</b></blockquote>"
                         ),
                         parse_mode="HTML",
                     )
@@ -472,13 +592,13 @@ async def process_build(bot, req, status_msg):
                         text="<blockquote>\u274c File too large & upload failed.</blockquote>",
                         parse_mode="HTML",
                     )
-            # Record successful build only
+
+            # Record successful build
             await dm.add_build_history({
                 "user_id": req["user_id"], "username": req["username"],
-                "project_name": fname, "project_type": ptype, "success": True,
+                "project_name": fname, "project_type": stat_type, "success": True,
             })
-            # Notify channel on success only
-            await notify_channel_success(bot, req, fname, ptype)
+            await notify_channel_success(bot, req, fname, display_type)
         else:
             err_txt = result.get("error", "Unknown error")
             err_log = os.path.join(bdir, "error_log.txt")
@@ -493,12 +613,11 @@ async def process_build(bot, req, status_msg):
                     filename=pname + "_error.zip",
                     caption=(
                         "<blockquote><b>Build Failed.</b>\n\n"
-                        "" + fname + " (" + ptype.upper() + ")\n\n"
+                        "" + fname + " (" + display_type + ")\n\n"
                         "Check error log in zip.</blockquote>"
                     ),
                     parse_mode="HTML",
                 )
-            # Failed builds NOT recorded — not counted in stats
 
     except asyncio.CancelledError:
         cancelled = True
@@ -527,7 +646,6 @@ async def process_build(bot, req, status_msg):
         build_task = None
         shutil.rmtree(bdir, ignore_errors=True)
         if cancelled or shutdown_event.is_set():
-            # Don't dequeue or start next — respawn_timer handles re-queuing
             return
         qm.finish_current()
         nxt = qm.get_next()
@@ -557,10 +675,8 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     reply = update.message.reply_to_message
     users = await dm.get_all_users()
 
-    # Collect message IDs — album or single
     msg_ids = [reply.message_id]
     if reply.media_group_id:
-        # Wait so all album parts are tracked by the cache
         await asyncio.sleep(2)
         if reply.media_group_id in media_group_cache:
             msg_ids = sorted(media_group_cache[reply.media_group_id])
@@ -568,10 +684,9 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ok, fail = 0, 0
     for uid in users:
         if int(uid) == OWNER_TG_ID:
-            continue  # Skip owner
+            continue
         try:
             if len(msg_ids) > 1:
-                # Try batch forward first (preserves album grouping, requires Bot API 7.2+)
                 try:
                     await ctx.bot.forward_messages(
                         chat_id=int(uid),
@@ -579,7 +694,6 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         message_ids=msg_ids,
                     )
                 except Exception:
-                    # Fallback: forward each message individually
                     for mid in msg_ids:
                         try:
                             await ctx.bot.forward_message(
@@ -607,6 +721,52 @@ async def cmd_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "\u274c Failed: " + str(fail) + "</blockquote>",
         parse_mode="HTML",
     )
+
+
+# ── Cloudflare Tunnel ────────────────────────────────────
+async def _drain_stderr(proc):
+    try:
+        while True:
+            line = await proc.stderr.readline()
+            if not line:
+                break
+    except Exception:
+        pass
+
+
+async def start_cloudflare_tunnel(port):
+    global tunnel_url, tunnel_proc
+    if not shutil.which("cloudflared"):
+        logger.warning("cloudflared not found — web portal disabled")
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "cloudflared", "tunnel", "--url", f"http://localhost:{port}", "--no-autoupdate",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        tunnel_proc = proc
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                line = await asyncio.wait_for(proc.stderr.readline(), timeout=2)
+                if not line:
+                    break
+                text = line.decode(errors="replace")
+                m = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com', text)
+                if m:
+                    tunnel_url = m.group(0)
+                    asyncio.create_task(_drain_stderr(proc))
+                    logger.info(f"Cloudflare tunnel: {tunnel_url}")
+                    return tunnel_url
+            except asyncio.TimeoutError:
+                continue
+        logger.warning("Could not get tunnel URL")
+        proc.kill()
+        return None
+    except Exception as e:
+        logger.error(f"Tunnel error: {e}")
+        return None
 
 
 # ── Respawn ──────────────────────────────────────────────
@@ -642,13 +802,11 @@ async def respawn():
 
 
 async def respawn_timer(app):
-    # Wait until 10 seconds before max runtime
     wait = max(0, MAX_RUNTIME_SECONDS - 10)
     await asyncio.sleep(wait)
     logger.info("10 seconds to restart — stopping current build...")
     shutdown_event.set()
 
-    # Cancel current build task if running
     if build_task and not build_task.done():
         build_task.cancel()
         try:
@@ -656,7 +814,6 @@ async def respawn_timer(app):
         except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
             pass
 
-    # Re-queue current request if build didn't finish
     if qm.current:
         qm.queue.insert(0, qm.current)
         qm.current = None
@@ -670,23 +827,44 @@ async def respawn_timer(app):
 
 # ── Post init ────────────────────────────────────────────
 async def post_init(app: Application):
-    global bot_username
+    global bot_username, application
+    application = app
     me = await app.bot.get_me()
     bot_username = me.username or ""
     data = await dm.load_queue()
     qm.from_dict(data)
+
+    # Start web server for download portal
+    try:
+        web_app = create_web_app(code_ids, download_files)
+        runner = aio_web.AppRunner(web_app)
+        await runner.setup()
+        site = aio_web.TCPSite(runner, "0.0.0.0", WEB_PORT)
+        await site.start()
+        logger.info(f"Web server started on port {WEB_PORT}")
+    except Exception as e:
+        logger.error(f"Web server failed: {e}")
+
+    # Start Cloudflare tunnel
+    await start_cloudflare_tunnel(WEB_PORT)
+
     asyncio.create_task(respawn_timer(app))
-    logger.info("EARL STORE BUILD APK bot started!")
+    if USE_LOCAL_API:
+        logger.info("EARL STORE BUILD APK bot started! (Local API — no file size limit)")
+    else:
+        logger.info("EARL STORE BUILD APK bot started!")
 
 
 # ── Main ─────────────────────────────────────────────────
 def main():
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    builder = Application.builder().token(BOT_TOKEN)
+    if USE_LOCAL_API:
+        builder = builder.base_url(f"{LOCAL_API_URL}/bot").base_file_url(f"{LOCAL_API_URL}/file/bot")
+    app = builder.post_init(post_init).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("build", cmd_build))
     app.add_handler(CommandHandler("foward", cmd_forward))
     app.add_handler(CallbackQueryHandler(cb_handler))
-    # Media group tracker — runs first (group -1) to capture album message IDs
     app.add_handler(MessageHandler(filters.ALL, on_message_track), group=-1)
     app.add_handler(MessageHandler(filters.Document.ALL, on_file))
     logger.info("Starting bot polling...")

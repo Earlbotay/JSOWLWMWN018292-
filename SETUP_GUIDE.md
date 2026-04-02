@@ -1,158 +1,111 @@
-# 🏗 EARL STORE BUILD APK — Setup Guide
+# EARL STORE — BUILD APK: Setup Guide
 
-## Arsitekturs
+## Prerequisites
 
-```
-┌─────────────────────────────────────────────────────┐
-│  PUBLIC REPO (unlimited minutes)                    │
-│  ├── server/          ← Bot code                    │
-│  ├── .github/workflows/server.yml  ← Self-respawn   │
-│  └── scripts/         ← Setup helpers               │
-└────────────────────┬────────────────────────────────┘
-                     │ GitHub API (PAT_TOKEN)
-┌────────────────────▼────────────────────────────────┐
-│  PRIVATE REPO (data storage)                        │
-│  └── data/                                          │
-│      ├── users.json        ← Semua user terdaftar   │
-│      ├── build_stats.json  ← Stats & sejarah build  │
-│      └── queue.json        ← Queue persistence      │
-└─────────────────────────────────────────────────────┘
-```
+- GitHub account with Actions enabled
+- Telegram Bot (from @BotFather)
+- Private GitHub repo for data storage
 
----
+## Step 1: Create Telegram Bot
 
-## Step 1: Buat 2 Repo
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. Send `/newbot` and follow the prompts
+3. Copy the **BOT_TOKEN**
 
-### Public Repo
-1. Buat repo baru di GitHub (public)
-2. Push semua file dari folder `earl-store-build/` ke repo ini
-3. Bila push ke `main`, workflow auto-start! 🚀
+## Step 2: Create Private Data Repo
 
-### Private Repo
-1. Buat repo baru di GitHub (private)
-2. Push file dari `earl-store-private-repo.zip`:
-   ```
-   data/users.json        → isi: {}
-   data/build_stats.json  → isi: {"total_native":0,"total_flutter":0,"total_success":0,"total_failed":0,"recent_success":[]}
-   data/queue.json        → isi: {"current":null,"queue":[]}
-   ```
+1. Create a **private** GitHub repository (e.g., `myname/bot-data`)
+2. Create a `data/` folder with empty JSON files:
+   - `data/users.json` → `{}`
+   - `data/build_stats.json` → `{}`
+   - `data/queue.json` → `{}`
 
----
+## Step 3: Generate PAT Token
 
-## Step 2: Buat Telegram Bot
+1. Go to GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens
+2. Create token with **repo** access to your private data repo
+3. Copy the token
 
-1. Chat [@BotFather](https://t.me/BotFather) di Telegram
-2. Send `/newbot`
-3. Beri nama: `EARL STORE BUILD APK`
-4. Simpan **BOT TOKEN** yang diberi
+## Step 4: Get Your Telegram User ID
 
----
+1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
+2. Copy your numeric user ID
 
-## Step 3: Dapatkan Owner Telegram ID
+## Step 5: Setup GitHub Secrets
 
-1. Chat [@userinfobot](https://t.me/userinfobot) di Telegram
-2. Send `/start`
-3. Simpan **ID** kau (nombor)
+Go to your **bot repo** → Settings → Secrets and variables → Actions → New repository secret:
 
----
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `BOT_TOKEN` | ✅ | Telegram bot token from BotFather |
+| `PAT_TOKEN` | ✅ | GitHub PAT for private data repo |
+| `PRIVATE_REPO` | ✅ | `owner/repo-name` of private data repo |
+| `OWNER_TG_ID` | ✅ | Your Telegram user ID (for /foward) |
+| `CHANNEL_ID` | ❌ | Channel ID for join-check & notifications |
+| `CHANNEL_LINK` | ❌ | Channel invite link |
+| `VIDEO_URL` | ❌ | Direct URL to intro video |
+| `API_ID` | ❌ | Telegram API ID (for Local API Server) |
+| `API_HASH` | ❌ | Telegram API Hash (for Local API Server) |
 
-## Step 4: Setup Channel/Group (Optional)
+## Step 6: Local API Server (Optional — Removes File Size Limit)
 
-Kalau nak force join:
-1. Buat channel/group Telegram
-2. Add bot sebagai admin
-3. Dapatkan channel ID (contoh: `-1001234567890`)
-4. Dapatkan invite link (contoh: `https://t.me/+xxxxx`)
+To remove Telegram's file size limits:
 
-Kalau tak nak force join, biarkan `CHANNEL_ID` kosong.
+1. Go to [my.telegram.org](https://my.telegram.org) → API development tools
+2. Create an app and copy **API_ID** and **API_HASH**
+3. Add them as GitHub Secrets
 
----
+When `API_ID` and `API_HASH` are set:
+- Bot automatically uses Local API Server
+- **Download**: Unlimited (no 20MB cap)
+- **Upload**: Up to 2GB (no 50MB cap)
+- No other config needed — `USE_LOCAL_API` and `LOCAL_API_URL` are auto-detected
 
-## Step 5: Buat GitHub PAT Token
+## Step 7: Deploy
 
-1. Pergi ke GitHub → Settings → Developer Settings → Personal Access Tokens → Fine-grained tokens
-2. Buat token baru dengan permissions:
-   - **Actions**: Read & Write (untuk respawn workflow)
-   - **Contents**: Read & Write (untuk read/write data di private repo)
-3. Scope: Kedua-dua repo (public + private)
-4. Simpan token
+1. Push all files to your bot repo's `main` branch
+2. The workflow starts automatically
+3. Bot runs for ~5 hours, then auto-restarts
 
----
+## Supported Project Types
 
-## Step 6: Upload Video & Dapatkan Link
-
-1. Upload video ke [Catbox](https://catbox.moe/) atau mana-mana file hosting
-2. Salin direct link video tu (contoh: `https://files.catbox.moe/abc123.mp4`)
-3. Link ni akan diset sebagai secret `VIDEO_URL`
-
----
-
-## Step 7: Set GitHub Secrets
-
-Pergi ke **Public Repo** → Settings → Secrets and variables → Actions → New repository secret
-
-| Secret Name    | Value                                          |
-|---------------|------------------------------------------------|
-| `BOT_TOKEN`    | Token dari BotFather                          |
-| `PAT_TOKEN`    | GitHub PAT token dari Step 5                  |
-| `OWNER_TG_ID`  | Telegram ID kau (nombor)                      |
-| `CHANNEL_ID`   | Channel ID (kosongkan jika tak perlu)         |
-| `CHANNEL_LINK` | Channel invite link (kosongkan jika tak perlu)|
-| `PRIVATE_REPO` | `username/nama-repo-private`                  |
-| `VIDEO_URL`    | Direct link video dari Step 6                 |
-
-> ⚠️ **Tak perlu set `PUBLIC_REPO`** — GitHub Actions auto-detect repo sendiri via `GITHUB_REPOSITORY`.
-
----
-
-## Step 8: Start Bot!
-
-**Auto-start:** Push code ke `main` branch → workflow auto-trigger! 🚀
-
-**Manual start (kalau perlu):**
-1. Pergi ke Public Repo → Actions tab
-2. Klik workflow "Server" di sidebar
-3. Klik "Run workflow" → "Run workflow"
-
-Bot akan auto-respawn setiap ~5 jam, berjalan 24/7.
-
----
-
-## Cara Guna Bot
-
-1. `/start` → Papar video + info bot + butang menu
-2. Hantar file `.zip` (project Android Native atau Flutter)
-3. Reply file `.zip` tu dengan `/build`
-4. Tunggu bot compile (~5-20 minit)
-5. Bot hantar hasil build (APK debug + release + AAB)
-
-### Owner Commands
-- `/forward` → Reply mesej, bot forward ke semua user
-
----
+| Level | Type | Detection | Build Tool |
+|-------|------|-----------|------------|
+| **Source Code** | Android Native | `build.gradle` / `build.gradle.kts` | Gradle (`assembleDebug/Release`) |
+| **Source Code** | Flutter | `pubspec.yaml` | Flutter CLI (`flutter build apk`) |
+| **Smali** | Native (apktool) | `apktool.yml` | apktool (`apktool b`) |
+| **Smali** | Flutter (apktool) | `apktool.yml` + `flutter_assets` | apktool (`apktool b`) |
 
 ## Features
 
-| Feature | Keterangan |
-|---------|-----------|
-| 🏗 Building APK | Status compile, total Native/Flutter, 5 sejarah berjaya |
-| ⏳ Queue | Berapa user dalam barisan |
-| 📖 Panduan | Cara guna bot |
-| 👥 Total User | Jumlah pengguna |
-| 👑 Owner | Link terus ke @earlxz |
-| ⏱ Countdown | Masa sebelum server restart |
-| 🔄 Auto-respawn | Server 24/7 (5 jam cycle) |
-| 📱 Auto-detect | Native Android & Flutter |
-| 📦 GoFile | Upload kalau file > 50MB |
-| 📢 Force join | Optional channel/group join |
-| 📣 Broadcast | /forward untuk owner |
+- ✅ Auto-detect project type (Native / Flutter / Smali)
+- ✅ Smali sub-type detection (originally Native or Flutter)
+- ✅ Build queue system
+- ✅ Auto-restart with queue persistence
+- ✅ Channel notifications on successful build
+- ✅ Owner broadcast (/foward)
+- ✅ Local API Server (optional — no file size limit)
+- ✅ Cloudflare Tunnel download portal (for >2GB output)
+- ✅ GoFile fallback for large files
+- ✅ Per-user Code ID for download portal access
 
----
+## Download Portal (>2GB Output)
+
+When build output exceeds 2GB:
+1. File is uploaded to **GoFile** (direct download link)
+2. File is also stored temporarily on the server
+3. User receives a **Cloudflare Tunnel link** + their **Code ID**
+4. User can visit the portal, enter their code, and download
+5. Portal link changes on every restart (temporary URL)
+6. Files expire when the bot restarts
 
 ## Troubleshooting
 
-- **Bot tak reply**: Check Actions tab, pastikan workflow running
-- **Video tak keluar**: Pastikan `VIDEO_URL` secret betul (direct link)
-- **Build gagal**: Semak error log yang bot hantar
-- **Queue hilang**: Queue auto-persist ke private repo sebelum respawn
-- **Respawn gagal**: Check PAT_TOKEN masih valid & ada Actions permission
+- **"Unsupported project"**: Ensure zip contains `build.gradle`, `pubspec.yaml`, or `apktool.yml`
+- **Build timeout**: Builds have a 20-minute timeout
+- **Java errors**: Bot auto-detects Java version from AGP. Supports Java 8, 11, 17
+- **Gradle errors**: Bot auto-fixes missing wrapper, CRLF line endings, and missing local.properties
+- **Flutter version errors**: Bot auto-upgrades AGP/Gradle to meet Flutter minimums
+- **Smali build errors**: Tries `--use-aapt2` first, falls back to aapt1
+- **File too large**: Set up Local API Server (Step 6) to increase limits
+- **Tunnel not working**: cloudflared is installed automatically. Check workflow logs

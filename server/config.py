@@ -19,3 +19,12 @@ MAX_RUNTIME_SECONDS = (5 * 60 * 60) - 600   # 4h50m
 
 TEMP_DIR = "/tmp/earl_builds"
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+# ── Telegram Bot API Local Server ────────────────────────
+API_ID = os.environ.get("API_ID", "")
+API_HASH = os.environ.get("API_HASH", "")
+USE_LOCAL_API = bool(API_ID and API_HASH)
+LOCAL_API_URL = "http://localhost:8081"
+
+# ── Web Server / Cloudflare Tunnel ───────────────────────
+WEB_PORT = 8080

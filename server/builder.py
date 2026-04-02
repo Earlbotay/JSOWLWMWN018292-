@@ -423,6 +423,36 @@ async def build_flutter(project_dir, config):
     return {"success": True, "files": files, "logs": logs}
 
 
+async def build_smali(project_dir, config):
+    logs = []
+    await setup_java(config.get("java_version", "17"))
+    logs.append(f"Java {config.get('java_version', '17')} ready")
+
+    # Build with apktool (try --use-aapt2 first)
+    code, out, err = await run_cmd("apktool b . --use-aapt2", cwd=project_dir)
+    logs.append(f"apktool build (aapt2): {'OK' if code == 0 else 'FAIL'}")
+
+    if code != 0:
+        # Retry without --use-aapt2 (older decompiled projects)
+        code, out, err = await run_cmd("apktool b .", cwd=project_dir)
+        logs.append(f"apktool build (aapt1 fallback): {'OK' if code == 0 else 'FAIL'}")
+
+    if code != 0:
+        return {"success": False, "error": f"Smali build failed:\n{err[-3000:]}\n{out[-1000:]}", "logs": logs}
+
+    # Find output APK in dist/
+    files = []
+    dist_dir = os.path.join(project_dir, "dist")
+    if os.path.exists(dist_dir):
+        for fn in os.listdir(dist_dir):
+            if fn.endswith(".apk"):
+                files.append(os.path.join(dist_dir, fn))
+
+    if not files:
+        return {"success": False, "error": f"No output APK found in dist/\n{err[-2000:]}", "logs": logs}
+    return {"success": True, "files": files, "logs": logs}
+
+
 async def build_project(project_dir, project_info):
     t = project_info["type"]
     c = project_info["config"]
@@ -430,6 +460,8 @@ async def build_project(project_dir, project_info):
         return await build_native(project_dir, c)
     if t == "flutter":
         return await build_flutter(project_dir, c)
+    if t == "smali":
+        return await build_smali(project_dir, c)
     return {"success": False, "error": "Unknown project type"}
 
 

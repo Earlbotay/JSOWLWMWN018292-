@@ -82,6 +82,8 @@ class DataManager:
             stats = {
                 "total_native": 0,
                 "total_flutter": 0,
+                "total_smali_native": 0,
+                "total_smali_flutter": 0,
                 "total_success": 0,
                 "total_failed": 0,
                 "recent_success": [],
@@ -90,9 +92,16 @@ class DataManager:
         return stats
 
     async def add_build_history(self, info):
-        """Only called for successful builds — failed builds are NOT recorded."""
+        """Only called for successful builds."""
         stats = await self.get_build_stats()
-        key = "total_native" if info["project_type"] == "native" else "total_flutter"
+        type_key_map = {
+            "native": "total_native",
+            "flutter": "total_flutter",
+            "smali_native": "total_smali_native",
+            "smali_flutter": "total_smali_flutter",
+            "smali": "total_smali_native",
+        }
+        key = type_key_map.get(info["project_type"], "total_native")
         stats[key] = stats.get(key, 0) + 1
         stats["total_success"] = stats.get("total_success", 0) + 1
         entry = {
