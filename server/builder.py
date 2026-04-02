@@ -355,7 +355,7 @@ async def build_native(project_dir, config):
     code, out, err = await run_cmd(f"{gcmd} assembleDebug --stacktrace", cwd=project_dir)
     logs.append(f"assembleDebug: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
-        return {"success": False, "error": f"Debug build failed:\n{err[-3000:]}\n{out[-1000:]}", "logs": logs}
+        return {"success": False, "error": f"Debug build failed:\n{err}\n{out}", "logs": logs}
 
     code2, out2, err2 = await run_cmd(f"{gcmd} assembleRelease --stacktrace", cwd=project_dir)
     logs.append(f"assembleRelease: {'OK' if code2 == 0 else 'FAIL'}")
@@ -371,7 +371,7 @@ async def build_native(project_dir, config):
                 if fn.endswith((".apk", ".aab")):
                     files.append(os.path.join(root, fn))
     if not files:
-        combined = f"{err[-2000:]}\n{err2[-2000:]}\n{err3[-2000:]}"
+        combined = f"{err}\n{err2}\n{err3}"
         return {"success": False, "error": f"No output files found.\n{combined}", "logs": logs}
     return {"success": True, "files": files, "logs": logs}
 
@@ -395,12 +395,12 @@ async def build_flutter(project_dir, config):
     code, out, err = await run_cmd("flutter pub get", cwd=project_dir, timeout=300)
     logs.append(f"pub get: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
-        return {"success": False, "error": f"flutter pub get failed:\n{err[-3000:]}\n{out[-1000:]}", "logs": logs}
+        return {"success": False, "error": f"flutter pub get failed:\n{err}\n{out}", "logs": logs}
 
     code, out, err = await run_cmd("flutter build apk --debug", cwd=project_dir)
     logs.append(f"apk debug: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
-        return {"success": False, "error": f"Debug build failed:\n{err[-3000:]}\n{out[-1000:]}", "logs": logs}
+        return {"success": False, "error": f"Debug build failed:\n{err}\n{out}", "logs": logs}
 
     code2, out2, err2 = await run_cmd("flutter build apk --release", cwd=project_dir)
     logs.append(f"apk release: {'OK' if code2 == 0 else 'FAIL'}")
@@ -419,7 +419,7 @@ async def build_flutter(project_dir, config):
                     if fn.endswith((".apk", ".aab")):
                         files.append(os.path.join(root, fn))
     if not files:
-        combined = f"{err[-2000:]}\n{err2[-2000:]}\n{err3[-2000:]}"
+        combined = f"{err}\n{err2}\n{err3}"
         return {"success": False, "error": f"No output files found.\n{combined}", "logs": logs}
     return {"success": True, "files": files, "logs": logs}
 
@@ -615,7 +615,7 @@ async def build_smali(project_dir, config):
         logs.append(f"apktool build (aapt1 fallback): {'OK' if code == 0 else 'FAIL'}")
 
     if code != 0:
-        return {"success": False, "error": f"Smali build failed:\n{err[-3000:]}\n{out[-1000:]}", "logs": logs}
+        return {"success": False, "error": f"Smali build failed:\n{err}\n{out}", "logs": logs}
 
     # Find output APK in dist/
     files = []
@@ -626,7 +626,7 @@ async def build_smali(project_dir, config):
                 files.append(os.path.join(dist_dir, fn))
 
     if not files:
-        return {"success": False, "error": f"No output APK found in dist/\n{err[-2000:]}", "logs": logs}
+        return {"success": False, "error": f"No output APK found in dist/\n{err}", "logs": logs}
 
     # Post-build: zipalign APKs (page-align native libs for compatibility)
     zipalign = _find_zipalign()
