@@ -85,13 +85,24 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local ..
           cmake --build . --target install -j$(nproc)
 
+      - name: Cache Telegram Bot API Data
+        id: cache-tg-data
+        if: steps.check-local-api.outputs.available == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/tg-api-data
+          key: tg-api-data-${{ github.run_id }}
+          restore-keys: |
+            tg-api-data-
+
       - name: Start Telegram Bot API Server
         if: steps.check-local-api.outputs.available == 'true'
         env:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
         run: |
-          telegram-bot-api --api-id=$API_ID --api-hash=$API_HASH --local &
+          mkdir -p /home/runner/tg-api-data
+          telegram-bot-api --api-id=$API_ID --api-hash=$API_HASH --local --dir=/home/runner/tg-api-data &
           sleep 3
           echo "Telegram Bot API Local Server started on port 8081"
 

@@ -10,14 +10,18 @@ logger = logging.getLogger(__name__)
 def extract_zip(zip_path, dest):
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest)
+    markers = (
+        "pubspec.yaml", "build.gradle", "build.gradle.kts",
+        "settings.gradle", "settings.gradle.kts", "app",
+        "apktool.yml",
+    )
+    # Check if markers are at root level already
+    if any(os.path.exists(os.path.join(dest, m)) for m in markers):
+        return dest
+    # Search subdirectories for the project (handles splits/ alongside project dir)
     items = [d for d in os.listdir(dest) if os.path.isdir(os.path.join(dest, d))]
-    if len(items) == 1:
-        nested = os.path.join(dest, items[0])
-        markers = (
-            "pubspec.yaml", "build.gradle", "build.gradle.kts",
-            "settings.gradle", "settings.gradle.kts", "app",
-            "apktool.yml",
-        )
+    for item in items:
+        nested = os.path.join(dest, item)
         if any(os.path.exists(os.path.join(nested, m)) for m in markers):
             return nested
     return dest

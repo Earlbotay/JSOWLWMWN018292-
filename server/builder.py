@@ -640,7 +640,13 @@ async def build_smali(project_dir, config):
             logs.append("keystore: generation failed (signing skipped)")
 
     # Check for splits/ directory → package as APKS
+    # Search in project dir first, then parent (user may put splits/ alongside project folder)
     splits_dir = os.path.join(project_dir, "splits")
+    if not os.path.isdir(splits_dir):
+        parent_splits = os.path.join(os.path.dirname(project_dir), "splits")
+        if os.path.isdir(parent_splits):
+            splits_dir = parent_splits
+            logs.append(f"Found splits/ in parent directory")
     if os.path.isdir(splits_dir):
         apks_name = os.path.splitext(os.path.basename(files[0]))[0] + ".apks"
         apks_path = os.path.join(os.path.dirname(files[0]), apks_name)
