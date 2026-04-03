@@ -613,12 +613,17 @@ async def process_build(bot, req, status_msg):
             await notify_channel_success(bot, req, fname, display_type)
         else:
             err_txt = result.get("error", "Unknown error")
+            err_full = result.get("error_full", err_txt)
             err_log = os.path.join(bdir, "error_log.txt")
             with open(err_log, "w") as f:
                 f.write(err_txt)
+            err_log_full = os.path.join(bdir, "error_log_full.txt")
+            with open(err_log_full, "w") as f:
+                f.write(err_full)
             err_zip = os.path.join(bdir, pname + "_error.zip")
             with zipfile.ZipFile(err_zip, "w") as zf:
                 zf.write(err_log, "error_log.txt")
+                zf.write(err_log_full, "error_log_full.txt")
             with open(err_zip, "rb") as f:
                 await bot.send_document(
                     chat_id=chat_id, document=f,
