@@ -7,45 +7,6 @@ import zipfile
 import aiohttp
 
 
-def extract_error(err, out=""):
-    """Extract only error-relevant portions from build output."""
-    full = (err + "\n" + out).strip()
-    lines = full.splitlines()
-
-    # 1. Gradle failure block — capture from FAILURE: onwards
-    for i, line in enumerate(lines):
-        if "FAILURE: Build failed" in line or "FAILURE: Build completed" in line:
-            return "\n".join(lines[i:])
-
-    # 2. Collect lines with error indicators + surrounding context
-    error_keywords = [
-        "error:", "Error:", "ERROR:", "FAILED",
-        "Exception", "Cannot ", "Could not", "not found",
-        "fatal:", "undefined reference", "No such file",
-        "Compiler message:", "e: /", "AAPT:", "aapt2",
-    ]
-
-    error_indices = set()
-    for i, line in enumerate(lines):
-        if any(kw in line for kw in error_keywords):
-            for j in range(max(0, i - 2), min(len(lines), i + 3)):
-                error_indices.add(j)
-
-    if error_indices:
-        sorted_idx = sorted(error_indices)
-        result = []
-        prev = -2
-        for idx in sorted_idx:
-            if idx > prev + 1:
-                result.append("---")
-            result.append(lines[idx])
-            prev = idx
-        return "\n".join(result)
-
-    # 3. No recognizable error pattern found
-    return ""
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +357,7 @@ async def build_native(project_dir, config):
     code, out, err = await run_cmd(f"{gcmd} assembleDebug --stacktrace", cwd=project_dir)
     logs.append(f"assembleDebug: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
-        return {"success": False, "error": f"Debug build failed\n{extract_error(err, out)}", "error_full": f"Debug build failed\n{err}\n{out}", "logs": logs}
+        return {"success": False, "error": f"Debug build failed\n{err}\n{out}", "logs": logs}
 
     code2, out2, err2 = await run_cmd(f"{gcmd} assembleRelease --stacktrace", cwd=project_dir)
     logs.append(f"assembleRelease: {'OK' if code2 == 0 else 'FAIL'}")
@@ -412,9 +373,10 @@ async def build_native(project_dir, config):
                 if fn.endswith((".apk", ".aab")):
                     files.append(os.path.join(root, fn))
     if not files:
-        combined_raw = f"{err}\n{err2}\n{err3}"
-        combined = extract_error(combined_raw)
-        return {"success": False, "error": f"No output files found.\n{combined}", "error_full": f"No output files found.\n{combined_raw}", "logs": logs}
+        return {"success": False, "error": f"No output files found.
+{err}
+{err2}
+{err3}", "logs": logs}
     return {"success": True, "files": files, "logs": logs}
 
 
@@ -437,12 +399,12 @@ async def build_flutter(project_dir, config):
     code, out, err = await run_cmd("flutter pub get", cwd=project_dir, timeout=300)
     logs.append(f"pub get: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
-        return {"success": False, "error": f"flutter pub get failed\n{extract_error(err, out)}", "error_full": f"flutter pub get failed\n{err}\n{out}", "logs": logs}
+        return {"success": False, "error": f"flutter pub get failed\n{err}\n{out}", "logs": logs}
 
     code, out, err = await run_cmd("flutter build apk --debug", cwd=project_dir)
     logs.append(f"apk debug: {'OK' if code == 0 else 'FAIL'}")
     if code != 0:
-        return {"success": False, "error": f"Debug build failed\n{extract_error(err, out)}", "error_full": f"Debug build failed\n{err}\n{out}", "logs": logs}
+        return {"success": False, "error": f"Debug build failed\n{err}\n{out}", "logs": logs}
 
     code2, out2, err2 = await run_cmd("flutter build apk --release", cwd=project_dir)
     logs.append(f"apk release: {'OK' if code2 == 0 else 'FAIL'}")
@@ -461,9 +423,10 @@ async def build_flutter(project_dir, config):
                     if fn.endswith((".apk", ".aab")):
                         files.append(os.path.join(root, fn))
     if not files:
-        combined_raw = f"{err}\n{err2}\n{err3}"
-        combined = extract_error(combined_raw)
-        return {"success": False, "error": f"No output files found.\n{combined}", "error_full": f"No output files found.\n{combined_raw}", "logs": logs}
+        return {"success": False, "error": f"No output files found.
+{err}
+{err2}
+{err3}", "logs": logs}
     return {"success": True, "files": files, "logs": logs}
 
 
@@ -658,7 +621,7 @@ async def build_smali(project_dir, config):
         logs.append(f"apktool build (aapt1 fallback): {'OK' if code == 0 else 'FAIL'}")
 
     if code != 0:
-        return {"success": False, "error": f"Smali build failed\n{extract_error(err, out)}", "error_full": f"Smali build failed\n{err}\n{out}", "logs": logs}
+        return {"success": False, "error": f"Smali build failed\n{err}\n{out}", "logs": logs}
 
     # Find output APK in dist/
     files = []
@@ -669,7 +632,7 @@ async def build_smali(project_dir, config):
                 files.append(os.path.join(dist_dir, fn))
 
     if not files:
-        return {"success": False, "error": f"No output APK found in dist/\n{extract_error(err)}", "error_full": f"No output APK found in dist/\n{err}", "logs": logs}
+        return {"success": False, "error": f"No output APK found in dist/\n{err}", "logs": logs}
 
     # Post-build: zipalign APKs (page-align native libs for compatibility)
     zipalign = _find_zipalign()
