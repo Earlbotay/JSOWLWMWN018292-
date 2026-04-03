@@ -373,10 +373,7 @@ async def build_native(project_dir, config):
                 if fn.endswith((".apk", ".aab")):
                     files.append(os.path.join(root, fn))
     if not files:
-        return {"success": False, "error": f"No output files found.
-{err}
-{err2}
-{err3}", "logs": logs}
+        return {"success": False, "error": f"No output files found.\n{err}\n{err2}\n{err3}", "logs": logs}
     return {"success": True, "files": files, "logs": logs}
 
 
@@ -423,10 +420,7 @@ async def build_flutter(project_dir, config):
                     if fn.endswith((".apk", ".aab")):
                         files.append(os.path.join(root, fn))
     if not files:
-        return {"success": False, "error": f"No output files found.
-{err}
-{err2}
-{err3}", "logs": logs}
+        return {"success": False, "error": f"No output files found.\n{err}\n{err2}\n{err3}", "logs": logs}
     return {"success": True, "files": files, "logs": logs}
 
 
