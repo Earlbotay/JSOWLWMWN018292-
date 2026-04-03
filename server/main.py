@@ -520,7 +520,9 @@ async def process_build(bot, req, status_msg):
             out_path = os.path.join(bdir, pname + "_output.zip")
             with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for fp in result["files"]:
-                    zf.write(fp, os.path.basename(fp))
+                    basename = os.path.basename(fp)
+                    arc_name = pname + basename[3:] if basename.startswith("app-") or basename.startswith("app.") else basename
+                    zf.write(fp, arc_name)
             out_name = pname + "_output.zip"
 
             fsize = os.path.getsize(out_path)
