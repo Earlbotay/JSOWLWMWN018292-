@@ -863,6 +863,26 @@ async def post_init(app: Application):
     await start_cloudflare_tunnel(WEB_PORT)
 
     asyncio.create_task(respawn_timer(app))
+    
+    # Auto-resume queue if not empty
+    async def auto_resume():
+        await asyncio.sleep(5) # Wait for bot to be fully ready
+        if not qm.is_empty() and not qm.current:
+            nxt = qm.get_next()
+            if nxt:
+                try:
+                    sm = await app.bot.send_message(
+                        chat_id=nxt["chat_id"],
+                        text="<blockquote>\u23f3 Resuming build after restart...</blockquote>",
+                        parse_mode="HTML"
+                    )
+                    global build_task
+                    build_task = asyncio.create_task(process_build(app.bot, nxt, sm))
+                except Exception as e:
+                    logger.error(f"Auto-resume failed: {e}")
+
+    asyncio.create_task(auto_resume())
+
     if USE_LOCAL_API:
         logger.info("EARL STORE BUILD APK bot started! (Local API — no file size limit)")
     else:
