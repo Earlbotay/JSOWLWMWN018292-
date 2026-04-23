@@ -28,6 +28,9 @@ class QueueManager:
     def get_size(self):
         return len(self.queue)
 
+    def is_empty(self):
+        return len(self.queue) == 0
+
     def is_busy(self):
         return self.current is not None
 
