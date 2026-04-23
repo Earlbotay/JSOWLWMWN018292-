@@ -871,13 +871,13 @@ async def post_init(app: Application):
             nxt = qm.get_next()
             if nxt:
                 try:
-                    sm = await app.bot.send_message(
+                    sm = await application.bot.send_message(
                         chat_id=nxt["chat_id"],
                         text="<blockquote>\u23f3 Resuming build after restart...</blockquote>",
                         parse_mode="HTML"
                     )
                     global build_task
-                    build_task = asyncio.create_task(process_build(app.bot, nxt, sm))
+                    build_task = asyncio.create_task(process_build(application.bot, nxt, sm))
                 except Exception as e:
                     logger.error(f"Auto-resume failed: {e}")
 
