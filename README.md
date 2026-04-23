@@ -3,7 +3,7 @@
 Hai! Ini repo saya untuk belajar Android development.
 Saya baru mula belajar coding dan share progress kat sini.
 
-## Apa Saya Belajar
+## Apa Saya Belajarz
 
 - Java & Kotlin basics
 - Android Studio setup
